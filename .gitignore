@@ -49,3 +49,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# internal planning docs (not part of the public repo)
+/PRD.md
+/SDD.md
+/SPEC.md
+/phases/
+
+# claude code local state
+/.claude/
