@@ -4,6 +4,7 @@ import fs from "node:fs";
 import { createHash } from "node:crypto";
 import type { PaperResult } from "./scholarly/types";
 import type { KeypointsData } from "./keypoints/parse";
+import type { CompareData } from "./compare/parse";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const DB_PATH = path.join(DATA_DIR, "litereview.db");
@@ -220,4 +221,17 @@ export function saveKeypoints(paperId: string, fulltextSource: string, data: Key
     rawJson: JSON.stringify(data),
     analyzedAt: new Date().toISOString(),
   });
+}
+
+export function saveComparison(paperIds: string[], result: CompareData): string {
+  const id = createHash("sha1").update(paperIds.join(",") + Date.now()).digest("hex").slice(0, 16);
+  db.prepare(
+    `INSERT INTO comparisons (id, paper_ids, result_json, created_at) VALUES (@id, @paperIds, @resultJson, @createdAt)`
+  ).run({
+    id,
+    paperIds: JSON.stringify(paperIds),
+    resultJson: JSON.stringify(result),
+    createdAt: new Date().toISOString(),
+  });
+  return id;
 }
