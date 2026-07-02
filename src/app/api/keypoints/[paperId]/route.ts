@@ -1,0 +1,61 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getPaper, getKeypoints, saveKeypoints } from "@/lib/db";
+import { getFullText } from "@/lib/fulltext";
+import { buildKeypointsPrompt } from "@/lib/keypoints/prompt";
+import { parseKeypointsResponse } from "@/lib/keypoints/parse";
+import { runClaude } from "@/lib/llm/claude-cli";
+import { enqueue } from "@/lib/keypoints/queue";
+
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ paperId: string }> }) {
+  const { paperId } = await params;
+  const keypoints = getKeypoints(paperId);
+  if (!keypoints) return NextResponse.json({ error: "尚未分析" }, { status: 404 });
+  return NextResponse.json({ status: "done", keypoints });
+}
+
+export async function POST(req: NextRequest, { params }: { params: Promise<{ paperId: string }> }) {
+  const { paperId } = await params;
+  const paper = getPaper(paperId);
+  if (!paper) return NextResponse.json({ error: "找不到論文" }, { status: 404 });
+
+  const contentType = req.headers.get("content-type") ?? "";
+  let forceRefresh = false;
+  let uploadBuffer: Buffer | null = null;
+
+  if (contentType.includes("multipart/form-data")) {
+    const form = await req.formData();
+    const file = form.get("file");
+    if (file instanceof File) uploadBuffer = Buffer.from(await file.arrayBuffer());
+    forceRefresh = form.get("forceRefresh") === "true";
+  } else {
+    const body = await req.json().catch(() => ({}) as Record<string, unknown>);
+    forceRefresh = Boolean((body as { forceRefresh?: boolean }).forceRefresh);
+  }
+
+  const existing = getKeypoints(paperId);
+  if (existing && !forceRefresh && !uploadBuffer) {
+    return NextResponse.json({ status: "done", keypoints: existing });
+  }
+
+  let stage: "fetching_fulltext" | "analyzing" = "fetching_fulltext";
+  try {
+    const keypoints = await enqueue(async () => {
+      const fullText = await getFullText(
+        { arxivId: paper.arxivId, doi: paper.doi, pdfUrl: paper.pdfUrl, abstract: paper.abstract },
+        uploadBuffer
+      );
+
+      stage = "analyzing";
+      const prompt = buildKeypointsPrompt(paper, fullText.text, fullText.source === "abstract_only");
+      const raw = await runClaude(prompt);
+      const data = parseKeypointsResponse(raw);
+      saveKeypoints(paperId, fullText.source, data);
+      return getKeypoints(paperId)!;
+    });
+
+    return NextResponse.json({ status: "done", keypoints });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return NextResponse.json({ status: "failed", stage, error: message }, { status: 500 });
+  }
+}

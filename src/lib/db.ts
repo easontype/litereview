@@ -3,6 +3,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { createHash } from "node:crypto";
 import type { PaperResult } from "./scholarly/types";
+import type { KeypointsData } from "./keypoints/parse";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const DB_PATH = path.join(DATA_DIR, "litereview.db");
@@ -133,4 +134,90 @@ export function listWorkspace(): WorkspaceItem[] {
     )
     .all() as Array<Omit<WorkspaceItem, "hasKeypoints"> & { hasKeypoints: number }>;
   return rows.map((r) => ({ ...r, hasKeypoints: Boolean(r.hasKeypoints) }));
+}
+
+export interface PaperRow {
+  id: string;
+  title: string;
+  abstract: string;
+  arxivId: string | null;
+  doi: string | null;
+  pdfUrl: string | null;
+}
+
+export function getPaper(id: string): PaperRow | undefined {
+  return db
+    .prepare(
+      `SELECT id, title, abstract, arxiv_id as arxivId, doi, pdf_url as pdfUrl FROM papers WHERE id = ?`
+    )
+    .get(id) as PaperRow | undefined;
+}
+
+export interface KeypointsRow {
+  paperId: string;
+  fulltextSource: string;
+  researchQuestion: string;
+  methodology: string;
+  keyFindings: string;
+  dataExperiments: string;
+  contributions: string;
+  limitations: string;
+  noveltyRating: string;
+  noveltyReason: string;
+  keyFormulasOrAlgorithms: string[];
+  analyzedAt: string;
+}
+
+export function getKeypoints(paperId: string): KeypointsRow | undefined {
+  const row = db.prepare(`SELECT paper_id, fulltext_source, raw_json, analyzed_at FROM keypoints WHERE paper_id = ?`).get(paperId) as
+    | { paper_id: string; fulltext_source: string; raw_json: string; analyzed_at: string }
+    | undefined;
+  if (!row) return undefined;
+  const data = JSON.parse(row.raw_json) as KeypointsData;
+  return {
+    paperId: row.paper_id,
+    fulltextSource: row.fulltext_source,
+    researchQuestion: data.research_question,
+    methodology: data.methodology,
+    keyFindings: data.key_findings,
+    dataExperiments: data.data_experiments,
+    contributions: data.contributions,
+    limitations: data.limitations,
+    noveltyRating: data.novelty_rating,
+    noveltyReason: data.novelty_reason,
+    keyFormulasOrAlgorithms: data.key_formulas_or_algorithms ?? [],
+    analyzedAt: row.analyzed_at,
+  };
+}
+
+export function saveKeypoints(paperId: string, fulltextSource: string, data: KeypointsData) {
+  db.prepare(
+    `INSERT INTO keypoints (paper_id, fulltext_source, research_question, methodology, key_findings, data_experiments, contributions, limitations, novelty_rating, novelty_reason, raw_json, analyzed_at)
+     VALUES (@paperId, @fulltextSource, @researchQuestion, @methodology, @keyFindings, @dataExperiments, @contributions, @limitations, @noveltyRating, @noveltyReason, @rawJson, @analyzedAt)
+     ON CONFLICT(paper_id) DO UPDATE SET
+       fulltext_source = excluded.fulltext_source,
+       research_question = excluded.research_question,
+       methodology = excluded.methodology,
+       key_findings = excluded.key_findings,
+       data_experiments = excluded.data_experiments,
+       contributions = excluded.contributions,
+       limitations = excluded.limitations,
+       novelty_rating = excluded.novelty_rating,
+       novelty_reason = excluded.novelty_reason,
+       raw_json = excluded.raw_json,
+       analyzed_at = excluded.analyzed_at`
+  ).run({
+    paperId,
+    fulltextSource,
+    researchQuestion: data.research_question,
+    methodology: data.methodology,
+    keyFindings: data.key_findings,
+    dataExperiments: data.data_experiments,
+    contributions: data.contributions,
+    limitations: data.limitations,
+    noveltyRating: data.novelty_rating,
+    noveltyReason: data.novelty_reason,
+    rawJson: JSON.stringify(data),
+    analyzedAt: new Date().toISOString(),
+  });
 }

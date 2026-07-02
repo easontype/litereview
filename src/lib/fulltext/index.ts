@@ -1,0 +1,49 @@
+import { fetchArxivFullText } from "./arxiv-parser";
+import { parsePdfToMarkdown } from "./marker-parser";
+import { fetchOaPdfText } from "./oa-pdf-fetch";
+
+export type FullTextSource = "arxiv" | "upload" | "unpaywall" | "abstract_only";
+
+export interface FullTextResult {
+  text: string;
+  source: FullTextSource;
+}
+
+export interface FullTextInput {
+  arxivId: string | null;
+  doi: string | null;
+  pdfUrl: string | null;
+  abstract: string;
+}
+
+/** 依優先序取得全文：arXiv → 上傳 PDF → Unpaywall → 全部失敗時退回 abstract_only。 */
+export async function getFullText(paper: FullTextInput, uploadBuffer?: Buffer | null): Promise<FullTextResult> {
+  if (paper.arxivId) {
+    try {
+      const text = await fetchArxivFullText(paper.arxivId);
+      if (text.trim()) return { text, source: "arxiv" };
+    } catch {
+      // 全文擷取失敗就往下一個來源 fallback
+    }
+  }
+
+  if (uploadBuffer) {
+    try {
+      const text = await parsePdfToMarkdown(uploadBuffer);
+      if (text.trim()) return { text, source: "upload" };
+    } catch {
+      // 忽略，繼續 fallback
+    }
+  }
+
+  if (paper.doi || paper.pdfUrl) {
+    try {
+      const text = await fetchOaPdfText({ doi: paper.doi, pdfUrl: paper.pdfUrl });
+      if (text && text.trim()) return { text, source: "unpaywall" };
+    } catch {
+      // 忽略，繼續 fallback
+    }
+  }
+
+  return { text: paper.abstract, source: "abstract_only" };
+}

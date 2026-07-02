@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 
 interface WorkspaceItem {
   id: string;
@@ -71,13 +72,12 @@ export default function WorkspacePage() {
                 </div>
               </div>
               <div className="flex shrink-0 gap-2">
-                <button
-                  type="button"
-                  onClick={() => console.log("找重點", item.id)}
-                  className="h-8 border border-black/15 px-3 text-xs font-medium transition-colors hover:border-foreground/40 dark:border-white/15"
+                <Link
+                  href={`/workspace/${item.id}`}
+                  className="flex h-8 items-center border border-black/15 px-3 text-xs font-medium transition-colors hover:border-foreground/40 dark:border-white/15"
                 >
-                  找重點
-                </button>
+                  {item.hasKeypoints ? "查看重點" : "找重點"}
+                </Link>
                 <button
                   type="button"
                   onClick={() => handleRemove(item.id)}

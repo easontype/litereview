@@ -1,6 +1,23 @@
 import type { PaperResult } from "./types";
 import { getSourceQualityBatch } from "./openalex-quality";
 
+interface OpenAlexWork {
+  title?: string;
+  display_name?: string;
+  abstract_inverted_index?: Record<string, number[]> | null;
+  publication_year?: number | null;
+  authorships?: { author?: { display_name?: string | null } | null }[];
+  doi?: string | null;
+  ids?: { doi?: string | null };
+  cited_by_count?: number | null;
+  best_oa_location?: { pdf_url?: string | null } | null;
+  primary_location?: {
+    pdf_url?: string | null;
+    source?: { id?: string | null; display_name?: string | null } | null;
+  } | null;
+  open_access?: { oa_url?: string | null } | null;
+}
+
 function contactParam(): string {
   const email = process.env.CONTACT_EMAIL;
   return email ? `mailto=${encodeURIComponent(email)}` : "";
@@ -23,13 +40,13 @@ function cleanDoi(doi?: string | null): string | null {
   return doi.replace(/^https?:\/\/doi\.org\//i, "");
 }
 
-function extractArxivId(work: any): string | null {
-  const doi: string | undefined = work.doi ?? work.ids?.doi;
+function extractArxivId(work: OpenAlexWork): string | null {
+  const doi: string | null | undefined = work.doi ?? work.ids?.doi;
   if (doi) {
     const m = /arxiv\.(\d{4}\.\d{4,5})/i.exec(doi);
     if (m) return m[1];
   }
-  const pdfUrl: string | undefined =
+  const pdfUrl: string | null | undefined =
     work.best_oa_location?.pdf_url ?? work.primary_location?.pdf_url ?? work.open_access?.oa_url;
   if (pdfUrl) {
     const m = /arxiv\.org\/(?:abs|pdf)\/(\d{4}\.\d{4,5})/i.exec(pdfUrl);
@@ -43,13 +60,15 @@ interface MappedWork {
   sourceId: string | null;
 }
 
-function mapWork(work: any): MappedWork {
+function mapWork(work: OpenAlexWork): MappedWork {
   const sourceId: string | null = work.primary_location?.source?.id ?? null;
   const paper: PaperResult = {
     title: work.title ?? work.display_name ?? "",
     abstract: reconstructAbstract(work.abstract_inverted_index),
     year: work.publication_year ?? null,
-    authors: (work.authorships ?? []).map((a: any) => a.author?.display_name).filter(Boolean),
+    authors: (work.authorships ?? [])
+      .map((a) => a.author?.display_name)
+      .filter((name): name is string => Boolean(name)),
     arxivId: extractArxivId(work),
     doi: cleanDoi(work.doi ?? work.ids?.doi),
     pdfUrl:
@@ -80,7 +99,7 @@ export async function searchOpenAlex(query: string, limit: number): Promise<Pape
   const res = await fetch(`https://api.openalex.org/works?${params.toString()}${contact ? "&" + contact : ""}`);
   if (!res.ok) throw new Error(`OpenAlex 搜尋失敗: ${res.status}`);
 
-  const json = await res.json();
+  const json = (await res.json()) as { results?: OpenAlexWork[] };
   const mapped: MappedWork[] = (json.results ?? []).map(mapWork);
   return attachQuality(mapped);
 }
@@ -91,7 +110,7 @@ export async function fetchOpenAlexByDoi(doi: string): Promise<PaperResult | nul
   const res = await fetch(`https://api.openalex.org/works/doi:${encodeURIComponent(doi)}${contact ? "?" + contact : ""}`);
   if (!res.ok) return null;
 
-  const work = await res.json();
+  const work = (await res.json()) as OpenAlexWork;
   const [paper] = await attachQuality([mapWork(work)]);
   return paper;
 }
