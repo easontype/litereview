@@ -1,5 +1,6 @@
 import { getPaper, getKeypoints, saveKeypoints, type KeypointsRow } from "@/lib/db";
 import { getFullText } from "@/lib/fulltext";
+import { getUploadedPdf } from "@/lib/fulltext/upload-store";
 import { buildKeypointsPrompt } from "./prompt";
 import { parseKeypointsResponse } from "./parse";
 import { runClaude } from "@/lib/llm/claude-cli";
@@ -19,8 +20,12 @@ export async function ensureKeypoints(paperId: string): Promise<KeypointsRow> {
 
     const fullText = await getFullText(
       { arxivId: paper.arxivId, doi: paper.doi, pdfUrl: paper.pdfUrl, abstract: paper.abstract },
-      null
+      getUploadedPdf(paperId)
     );
+    if (fullText.source === "abstract_only" && !fullText.text.trim()) {
+      throw new Error("找不到可分析的內容：PDF 解析失敗，且沒有摘要可退回（請確認已設定 MARKER_API_KEY）");
+    }
+
     const prompt = buildKeypointsPrompt(paper, fullText.text, fullText.source === "abstract_only");
     const raw = await runClaude(prompt);
     const data = parseKeypointsResponse(raw);

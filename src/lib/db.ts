@@ -113,6 +113,17 @@ export function upsertPaper(paper: PaperResult): string {
   return id;
 }
 
+/** 使用者直接上傳 PDF 建立的論文：無 arXiv/DOI，去重鍵不適用，id 用標題+時間戳雜湊避免碰撞。 */
+export function createUploadedPaper(title: string): string {
+  const id = createHash("sha1").update(`upload:${title}:${Date.now()}:${Math.random()}`).digest("hex").slice(0, 16);
+  db.prepare(
+    `INSERT INTO papers (id, title, abstract, authors, year, arxiv_id, doi, pdf_url, source, venue, citation_count, openalex_2yr_citedness, openalex_h_index, created_at)
+     VALUES (@id, @title, '', '[]', NULL, NULL, NULL, NULL, 'upload', NULL, NULL, NULL, NULL, @createdAt)`
+  ).run({ id, title, createdAt: new Date().toISOString() });
+  addToWorkspace(id);
+  return id;
+}
+
 export function addToWorkspace(paperId: string) {
   db.prepare(
     "INSERT INTO workspace_items (paper_id, added_at) VALUES (?, ?) ON CONFLICT(paper_id) DO NOTHING"
