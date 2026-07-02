@@ -14,6 +14,21 @@ export default function Home() {
   const [results, setResults] = useState<PaperResult[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [addedKeys, setAddedKeys] = useState<Set<string>>(new Set());
+
+  function paperKey(paper: PaperResult): string {
+    return paper.arxivId ?? paper.doi ?? paper.title;
+  }
+
+  async function handleAdd(paper: PaperResult) {
+    const key = paperKey(paper);
+    const res = await fetch("/api/workspace/papers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paper }),
+    });
+    if (res.ok) setAddedKeys((prev) => new Set(prev).add(key));
+  }
 
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault();
@@ -66,49 +81,53 @@ export default function Home() {
             {results.length} 筆結果
           </p>
           <ul className="divide-y divide-black/10 border-t border-black/10 dark:divide-white/10 dark:border-white/10">
-            {results.map((paper, i) => (
-              <li key={paper.arxivId ?? paper.doi ?? `${paper.title}-${i}`} className="py-5">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0 flex-1">
-                    <h2 className="font-serif text-lg font-semibold leading-[1.2] text-foreground">
-                      {paper.title || "（無標題）"}
-                    </h2>
-                    <p className="mt-1 text-[13px] leading-[1.55] text-foreground/55">
-                      {paper.authors.slice(0, 4).join(", ")}
-                      {paper.authors.length > 4 ? " 等" : ""}
-                      {paper.year ? ` · ${paper.year}` : ""}
-                      {paper.venue ? ` · ${paper.venue}` : ""}
-                    </p>
+            {results.map((paper, i) => {
+              const added = addedKeys.has(paperKey(paper));
+              return (
+                <li key={paper.arxivId ?? paper.doi ?? `${paper.title}-${i}`} className="py-5">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0 flex-1">
+                      <h2 className="font-serif text-lg font-semibold leading-[1.2] text-foreground">
+                        {paper.title || "（無標題）"}
+                      </h2>
+                      <p className="mt-1 text-[13px] leading-[1.55] text-foreground/55">
+                        {paper.authors.slice(0, 4).join(", ")}
+                        {paper.authors.length > 4 ? " 等" : ""}
+                        {paper.year ? ` · ${paper.year}` : ""}
+                        {paper.venue ? ` · ${paper.venue}` : ""}
+                      </p>
 
-                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-foreground/45">
-                      <span className="font-mono">{SOURCE_LABEL[paper.source]}</span>
-                      {paper.citationCount !== null && (
-                        <span className="font-mono">被引 {paper.citationCount}</span>
+                      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-foreground/45">
+                        <span className="font-mono">{SOURCE_LABEL[paper.source]}</span>
+                        {paper.citationCount !== null && (
+                          <span className="font-mono">被引 {paper.citationCount}</span>
+                        )}
+                        {paper.quality?.hIndex != null && (
+                          <span className="font-mono">h-index {paper.quality.hIndex}</span>
+                        )}
+                        {paper.arxivId && <span className="font-mono">arXiv:{paper.arxivId}</span>}
+                        {paper.doi && <span className="font-mono">{paper.doi}</span>}
+                      </div>
+
+                      {paper.abstract && (
+                        <p className="mt-2 line-clamp-2 text-[13px] leading-[1.7] text-foreground/70">
+                          {paper.abstract}
+                        </p>
                       )}
-                      {paper.quality?.hIndex != null && (
-                        <span className="font-mono">h-index {paper.quality.hIndex}</span>
-                      )}
-                      {paper.arxivId && <span className="font-mono">arXiv:{paper.arxivId}</span>}
-                      {paper.doi && <span className="font-mono">{paper.doi}</span>}
                     </div>
 
-                    {paper.abstract && (
-                      <p className="mt-2 line-clamp-2 text-[13px] leading-[1.7] text-foreground/70">
-                        {paper.abstract}
-                      </p>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleAdd(paper)}
+                      disabled={added}
+                      className="h-8 shrink-0 self-start border border-black/15 px-3 text-xs font-medium transition-colors hover:border-foreground/40 disabled:opacity-40 dark:border-white/15"
+                    >
+                      {added ? "已加入" : "加入工作區"}
+                    </button>
                   </div>
-
-                  <button
-                    type="button"
-                    onClick={() => console.log("加入工作區", paper)}
-                    className="h-8 shrink-0 self-start border border-black/15 px-3 text-xs font-medium transition-colors hover:border-foreground/40 dark:border-white/15"
-                  >
-                    加入工作區
-                  </button>
-                </div>
-              </li>
-            ))}
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}

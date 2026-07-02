@@ -1,6 +1,8 @@
 import Database from "better-sqlite3";
 import path from "node:path";
 import fs from "node:fs";
+import { createHash } from "node:crypto";
+import type { PaperResult } from "./scholarly/types";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const DB_PATH = path.join(DATA_DIR, "litereview.db");
@@ -60,3 +62,75 @@ export function ensureSchema() {
 }
 
 ensureSchema();
+
+export interface WorkspaceItem {
+  id: string;
+  title: string;
+  source: string;
+  arxivId: string | null;
+  doi: string | null;
+  addedAt: string;
+  hasKeypoints: boolean;
+}
+
+/** 論文的去重鍵：優先用 arXiv ID，其次 DOI，最後標題（與 Phase 1 搜尋結果去重邏輯一致）。 */
+function paperKey(paper: Pick<PaperResult, "arxivId" | "doi" | "title">): string {
+  return paper.arxivId ?? paper.doi ?? paper.title;
+}
+
+/** 用去重鍵的 hash 當 id，避免 DOI 裡的 "/" 破壞 API 路由。 */
+function paperIdFromKey(key: string): string {
+  return createHash("sha1").update(key).digest("hex").slice(0, 16);
+}
+
+/** 依 arxivId ?? doi ?? title 判斷論文是否已存在，回傳（新建或既有的）id。 */
+export function upsertPaper(paper: PaperResult): string {
+  const id = paperIdFromKey(paperKey(paper));
+  const existing = db.prepare("SELECT id FROM papers WHERE id = ?").get(id);
+  if (!existing) {
+    db.prepare(
+      `INSERT INTO papers (id, title, abstract, authors, year, arxiv_id, doi, pdf_url, source, venue, citation_count, openalex_2yr_citedness, openalex_h_index, created_at)
+       VALUES (@id, @title, @abstract, @authors, @year, @arxivId, @doi, @pdfUrl, @source, @venue, @citationCount, @twoYearCitedness, @hIndex, @createdAt)`
+    ).run({
+      id,
+      title: paper.title,
+      abstract: paper.abstract,
+      authors: JSON.stringify(paper.authors),
+      year: paper.year,
+      arxivId: paper.arxivId,
+      doi: paper.doi,
+      pdfUrl: paper.pdfUrl,
+      source: paper.source,
+      venue: paper.venue ?? null,
+      citationCount: paper.citationCount,
+      twoYearCitedness: paper.quality?.twoYearCitedness ?? null,
+      hIndex: paper.quality?.hIndex ?? null,
+      createdAt: new Date().toISOString(),
+    });
+  }
+  return id;
+}
+
+export function addToWorkspace(paperId: string) {
+  db.prepare(
+    "INSERT INTO workspace_items (paper_id, added_at) VALUES (?, ?) ON CONFLICT(paper_id) DO NOTHING"
+  ).run(paperId, new Date().toISOString());
+}
+
+export function removeFromWorkspace(paperId: string) {
+  db.prepare("DELETE FROM workspace_items WHERE paper_id = ?").run(paperId);
+}
+
+export function listWorkspace(): WorkspaceItem[] {
+  const rows = db
+    .prepare(
+      `SELECT p.id as id, p.title as title, p.source as source, p.arxiv_id as arxivId, p.doi as doi,
+              w.added_at as addedAt, (k.paper_id IS NOT NULL) as hasKeypoints
+       FROM workspace_items w
+       JOIN papers p ON p.id = w.paper_id
+       LEFT JOIN keypoints k ON k.paper_id = p.id
+       ORDER BY w.added_at DESC`
+    )
+    .all() as Array<Omit<WorkspaceItem, "hasKeypoints"> & { hasKeypoints: number }>;
+  return rows.map((r) => ({ ...r, hasKeypoints: Boolean(r.hasKeypoints) }));
+}
