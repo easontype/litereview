@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { MagnifyingGlass, Books, Columns, UploadSimple, SidebarSimple } from "@phosphor-icons/react";
+import { MagnifyingGlass, Books, Columns, UploadSimple, SidebarSimple, BookOpen, Medal } from "@phosphor-icons/react";
+import { ZoteroImportDialog } from "@/components/zotero-import";
 
 interface SidebarPaper {
   id: string;
@@ -30,6 +31,7 @@ export function Sidebar() {
   const searchParams = useSearchParams();
   const [papers, setPapers] = useState<SidebarPaper[] | null>(null);
   const [comparisons, setComparisons] = useState<SidebarComparison[] | null>(null);
+  const [zoteroOpen, setZoteroOpen] = useState(false);
   const collapsed = useSyncExternalStore(
     subscribeSidebarToggle,
     () => localStorage.getItem("lr:sidebar") === "collapsed",
@@ -97,6 +99,10 @@ export function Sidebar() {
         <MagnifyingGlass size={16} className="shrink-0 text-slate" />
         <span className="text-sm font-medium">搜尋文獻</span>
       </SidebarLink>
+      <SidebarLink href="/journals" active={pathname === "/journals"}>
+        <Medal size={16} className="shrink-0 text-slate" />
+        <span className="text-sm font-medium">期刊分級</span>
+      </SidebarLink>
 
       <div className="mt-4">
         <Link
@@ -151,7 +157,15 @@ export function Sidebar() {
         ))}
       </div>
 
-      <div className="mt-auto pt-4">
+      <div className="mt-auto flex flex-col gap-1.5 pt-4">
+        <button
+          type="button"
+          onClick={() => setZoteroOpen(true)}
+          className="flex min-h-[34px] items-center gap-2 rounded-sm border border-dashed border-hairline-strong px-2 py-1.5 text-left text-[13px] font-medium text-slate transition-colors hover:border-slate hover:text-ink"
+        >
+          <BookOpen size={16} className="shrink-0" />
+          從 Zotero 匯入
+        </button>
         <Link
           href="/workspace"
           className="flex min-h-[34px] items-center gap-2 rounded-sm border border-dashed border-hairline-strong px-2 py-1.5 text-[13px] font-medium text-slate transition-colors hover:border-slate hover:text-ink"
@@ -160,6 +174,13 @@ export function Sidebar() {
           上傳 PDF 加入工作區
         </Link>
       </div>
+
+      {zoteroOpen && (
+        <ZoteroImportDialog
+          onClose={() => setZoteroOpen(false)}
+          onImported={() => window.dispatchEvent(new Event("lr:refresh"))}
+        />
+      )}
     </aside>
   );
 }

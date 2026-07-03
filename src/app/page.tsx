@@ -2,16 +2,20 @@
 
 import { useState } from "react";
 import type { PaperResult } from "@/lib/scholarly/types";
+import { RankBadge, type RankInfo } from "@/components/rank-badge";
+
+type SearchResult = PaperResult & { rank?: RankInfo | null };
 
 const SOURCE_LABEL: Record<PaperResult["source"], string> = {
   openalex: "OpenAlex",
   semantic_scholar: "Semantic Scholar",
   arxiv: "arXiv",
+  zotero: "Zotero",
 };
 
 export default function Home() {
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<PaperResult[] | null>(null);
+  const [results, setResults] = useState<SearchResult[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [addedKeys, setAddedKeys] = useState<Set<string>>(new Set());
@@ -97,6 +101,7 @@ export default function Home() {
                       </p>
 
                       <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-steel">
+                        <RankBadge rank={paper.rank} />
                         <span>{SOURCE_LABEL[paper.source]}</span>
                         {paper.citationCount !== null && <span>被引 {paper.citationCount}</span>}
                         {paper.quality?.hIndex != null && <span>h-index {paper.quality.hIndex}</span>}

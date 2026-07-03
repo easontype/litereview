@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { ZoteroImportButton } from "@/components/zotero-import";
+import { RankBadge, type RankInfo } from "@/components/rank-badge";
 
 interface WorkspaceItem {
   id: string;
@@ -13,6 +15,7 @@ interface WorkspaceItem {
   addedAt: string;
   hasKeypoints: boolean;
   fulltextSource: string | null;
+  rank?: RankInfo | null;
 }
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -20,6 +23,7 @@ const SOURCE_LABEL: Record<string, string> = {
   semantic_scholar: "Semantic Scholar",
   arxiv: "arXiv",
   upload: "已上傳 PDF",
+  zotero: "Zotero",
 };
 
 function Status({ item }: { item: WorkspaceItem }) {
@@ -128,7 +132,16 @@ export default function WorkspacePage() {
         {items ? `${items.length} 篇論文` : "載入中…"} · 勾選 2–6 篇已分析的論文可發起比較
       </p>
 
-      <div id="upload" className="mt-6 rounded-md border border-hairline bg-surface-soft px-4 py-3.5">
+      <div className="mt-6">
+        <ZoteroImportButton
+          onImported={() => {
+            load();
+            window.dispatchEvent(new Event("lr:refresh"));
+          }}
+        />
+      </div>
+
+      <div id="upload" className="mt-3 rounded-md border border-hairline bg-surface-soft px-4 py-3.5">
         <h2 className="font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-steel">
           上傳 PDF 加入工作區
         </h2>
@@ -183,6 +196,7 @@ export default function WorkspacePage() {
                     {SOURCE_LABEL[item.source] ?? item.source}
                   </span>
                   <Status item={item} />
+                  <RankBadge rank={item.rank} />
                 </div>
               </div>
               <div className="flex shrink-0 gap-2">

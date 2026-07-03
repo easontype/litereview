@@ -13,7 +13,7 @@ interface OpenAlexWork {
   best_oa_location?: { pdf_url?: string | null } | null;
   primary_location?: {
     pdf_url?: string | null;
-    source?: { id?: string | null; display_name?: string | null } | null;
+    source?: { id?: string | null; display_name?: string | null; issn_l?: string | null } | null;
   } | null;
   open_access?: { oa_url?: string | null } | null;
 }
@@ -76,6 +76,7 @@ function mapWork(work: OpenAlexWork): MappedWork {
     citationCount: work.cited_by_count ?? null,
     source: "openalex",
     venue: work.primary_location?.source?.display_name ?? null,
+    issn: work.primary_location?.source?.issn_l ?? null,
     quality: null,
   };
   return { paper, sourceId };

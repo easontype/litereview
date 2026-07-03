@@ -3,6 +3,7 @@ import { fetchArxivMeta, searchArxiv } from "@/lib/scholarly/arxiv";
 import { searchOpenAlex } from "@/lib/scholarly/openalex";
 import { searchSemanticScholar } from "@/lib/scholarly/semantic-scholar";
 import { fetchByDoi } from "@/lib/scholarly/crossref-doi";
+import { getRank } from "@/lib/rankings/lookup";
 import type { PaperResult } from "@/lib/scholarly/types";
 
 const ARXIV_ID_REGEX = /^(?:arxiv:)?(\d{4}\.\d{4,5})(?:v\d+)?$/i;
@@ -32,12 +33,12 @@ export async function GET(req: NextRequest) {
   const arxivMatch = ARXIV_ID_REGEX.exec(q);
   if (arxivMatch) {
     const paper = await fetchArxivMeta(arxivMatch[1]);
-    return NextResponse.json({ results: paper ? [paper] : [] });
+    return NextResponse.json({ results: paper ? [attachRank(paper)] : [] });
   }
 
   if (DOI_REGEX.test(q)) {
     const paper = await fetchByDoi(q);
-    return NextResponse.json({ results: paper ? [paper] : [] });
+    return NextResponse.json({ results: paper ? [attachRank(paper)] : [] });
   }
 
   const settled = await Promise.allSettled([
@@ -47,5 +48,9 @@ export async function GET(req: NextRequest) {
   ]);
 
   const merged = settled.flatMap((r) => (r.status === "fulfilled" ? r.value : []));
-  return NextResponse.json({ results: dedupe(merged) });
+  return NextResponse.json({ results: dedupe(merged).map(attachRank) });
+}
+
+function attachRank(paper: PaperResult) {
+  return { ...paper, rank: getRank(paper.issn, paper.venue) };
 }

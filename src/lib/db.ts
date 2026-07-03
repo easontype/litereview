@@ -60,10 +60,57 @@ export function ensureSchema() {
       result_json TEXT,
       created_at TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS journal_ranks (
+      issn TEXT,
+      title TEXT,
+      title_norm TEXT,
+      kind TEXT,
+      sjr_quartile TEXT,
+      sjr_score REAL,
+      core_rank TEXT,
+      source_year INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_journal_ranks_issn ON journal_ranks(issn);
+    CREATE INDEX IF NOT EXISTS idx_journal_ranks_title_norm ON journal_ranks(title_norm);
   `);
+
+  ensureColumn("papers", "zotero_key", "TEXT");
+  ensureColumn("papers", "issn", "TEXT");
+  ensureColumn("keypoints", "zotero_note_key", "TEXT");
+}
+
+/** 輕量 migration：欄位不存在時 ALTER TABLE 補上（better-sqlite3 無 IF NOT EXISTS for columns）。 */
+function ensureColumn(table: string, column: string, ddl: string) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+  }
 }
 
 ensureSchema();
+
+export function getSetting(key: string): string | null {
+  const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(key) as
+    | { value: string }
+    | undefined;
+  return row?.value ?? null;
+}
+
+export function setSetting(key: string, value: string | null) {
+  if (value === null) {
+    db.prepare("DELETE FROM settings WHERE key = ?").run(key);
+    return;
+  }
+  db.prepare(
+    "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+  ).run(key, value);
+}
 
 export interface WorkspaceItem {
   id: string;
@@ -74,6 +121,9 @@ export interface WorkspaceItem {
   addedAt: string;
   hasKeypoints: boolean;
   fulltextSource: string | null;
+  zoteroKey: string | null;
+  venue: string | null;
+  issn: string | null;
 }
 
 /** 論文的去重鍵：優先用 arXiv ID，其次 DOI，最後標題（與 Phase 1 搜尋結果去重邏輯一致）。 */
@@ -92,8 +142,8 @@ export function upsertPaper(paper: PaperResult): string {
   const existing = db.prepare("SELECT id FROM papers WHERE id = ?").get(id);
   if (!existing) {
     db.prepare(
-      `INSERT INTO papers (id, title, abstract, authors, year, arxiv_id, doi, pdf_url, source, venue, citation_count, openalex_2yr_citedness, openalex_h_index, created_at)
-       VALUES (@id, @title, @abstract, @authors, @year, @arxivId, @doi, @pdfUrl, @source, @venue, @citationCount, @twoYearCitedness, @hIndex, @createdAt)`
+      `INSERT INTO papers (id, title, abstract, authors, year, arxiv_id, doi, pdf_url, source, venue, issn, citation_count, openalex_2yr_citedness, openalex_h_index, created_at)
+       VALUES (@id, @title, @abstract, @authors, @year, @arxivId, @doi, @pdfUrl, @source, @venue, @issn, @citationCount, @twoYearCitedness, @hIndex, @createdAt)`
     ).run({
       id,
       title: paper.title,
@@ -105,6 +155,7 @@ export function upsertPaper(paper: PaperResult): string {
       pdfUrl: paper.pdfUrl,
       source: paper.source,
       venue: paper.venue ?? null,
+      issn: paper.issn ?? null,
       citationCount: paper.citationCount,
       twoYearCitedness: paper.quality?.twoYearCitedness ?? null,
       hIndex: paper.quality?.hIndex ?? null,
@@ -112,6 +163,30 @@ export function upsertPaper(paper: PaperResult): string {
     });
   }
   return id;
+}
+
+/** 對外暴露去重 id 計算（Zotero 匯入等入口用來判斷論文是否已在庫）。 */
+export function paperIdFor(paper: Pick<PaperResult, "arxivId" | "doi" | "title">): string {
+  return paperIdFromKey(paperKey(paper));
+}
+
+export function isInWorkspace(paperId: string): boolean {
+  return Boolean(db.prepare("SELECT 1 FROM workspace_items WHERE paper_id = ?").get(paperId));
+}
+
+export function setZoteroKey(paperId: string, zoteroKey: string) {
+  db.prepare("UPDATE papers SET zotero_key = ? WHERE id = ?").run(zoteroKey, paperId);
+}
+
+export function getZoteroNoteKey(paperId: string): string | null {
+  const row = db.prepare("SELECT zotero_note_key FROM keypoints WHERE paper_id = ?").get(paperId) as
+    | { zotero_note_key: string | null }
+    | undefined;
+  return row?.zotero_note_key ?? null;
+}
+
+export function setZoteroNoteKey(paperId: string, noteKey: string) {
+  db.prepare("UPDATE keypoints SET zotero_note_key = ? WHERE paper_id = ?").run(noteKey, paperId);
 }
 
 /** 使用者直接上傳 PDF 建立的論文：無 arXiv/DOI，去重鍵不適用，id 用標題+時間戳雜湊避免碰撞。 */
@@ -139,6 +214,7 @@ export function listWorkspace(): WorkspaceItem[] {
   const rows = db
     .prepare(
       `SELECT p.id as id, p.title as title, p.source as source, p.arxiv_id as arxivId, p.doi as doi,
+              p.zotero_key as zoteroKey, p.venue as venue, p.issn as issn,
               w.added_at as addedAt, (k.paper_id IS NOT NULL) as hasKeypoints, k.fulltext_source as fulltextSource
        FROM workspace_items w
        JOIN papers p ON p.id = w.paper_id
@@ -156,12 +232,13 @@ export interface PaperRow {
   arxivId: string | null;
   doi: string | null;
   pdfUrl: string | null;
+  zoteroKey: string | null;
 }
 
 export function getPaper(id: string): PaperRow | undefined {
   return db
     .prepare(
-      `SELECT id, title, abstract, arxiv_id as arxivId, doi, pdf_url as pdfUrl FROM papers WHERE id = ?`
+      `SELECT id, title, abstract, arxiv_id as arxivId, doi, pdf_url as pdfUrl, zotero_key as zoteroKey FROM papers WHERE id = ?`
     )
     .get(id) as PaperRow | undefined;
 }

@@ -1,6 +1,8 @@
 "use client";
 
 import { use, useEffect, useState } from "react";
+import { ZoteroWritebackButton } from "@/components/zotero-writeback";
+import { RankBadge, type RankInfo } from "@/components/rank-badge";
 
 interface KeypointsData {
   paperId: string;
@@ -23,6 +25,9 @@ interface WorkspaceItem {
   source: string;
   arxivId: string | null;
   doi: string | null;
+  zoteroKey: string | null;
+  venue: string | null;
+  rank?: RankInfo | null;
 }
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -96,8 +101,12 @@ export default function KeypointsPage({ params }: { params: Promise<{ paperId: s
           <h1 className="font-serif text-[30px] font-bold leading-[1.25] tracking-[-0.3px]">
             {paper.title || "（無標題）"}
           </h1>
-          <p className="mt-2 font-mono text-[12px] text-slate">
-            {[paper.arxivId && `arXiv:${paper.arxivId}`, paper.doi].filter(Boolean).join(" · ")}
+          <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[12px] text-slate">
+            <RankBadge rank={paper.rank} />
+            {paper.venue && <span>{paper.venue}</span>}
+            <span>
+              {[paper.arxivId && `arXiv:${paper.arxivId}`, paper.doi].filter(Boolean).join(" · ")}
+            </span>
           </p>
         </>
       )}
@@ -140,6 +149,7 @@ export default function KeypointsPage({ params }: { params: Promise<{ paperId: s
               分析於 {keypoints.analyzedAt.slice(0, 16).replace("T", " ")}
             </span>
             <span className="flex-1" />
+            {paper?.zoteroKey && <ZoteroWritebackButton paperId={paperId} />}
             <button
               type="button"
               onClick={() => runAnalysis(true)}
