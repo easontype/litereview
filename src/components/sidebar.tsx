@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { MagnifyingGlass, Books, Columns, UploadSimple, SidebarSimple, BookOpen, Medal } from "@phosphor-icons/react";
+import { MagnifyingGlass, Books, Columns, UploadSimple, SidebarSimple, BookOpen, Medal, GearSix, Scales } from "@phosphor-icons/react";
 import { ZoteroImportDialog } from "@/components/zotero-import";
 
 interface SidebarPaper {
@@ -20,6 +20,13 @@ interface SidebarComparison {
   createdAt: string;
 }
 
+interface SidebarDebate {
+  id: string;
+  motion: string;
+  status: string;
+  createdAt: string;
+}
+
 function subscribeSidebarToggle(callback: () => void) {
   window.addEventListener("lr:sidebar-toggle", callback);
   return () => window.removeEventListener("lr:sidebar-toggle", callback);
@@ -31,6 +38,7 @@ export function Sidebar() {
   const searchParams = useSearchParams();
   const [papers, setPapers] = useState<SidebarPaper[] | null>(null);
   const [comparisons, setComparisons] = useState<SidebarComparison[] | null>(null);
+  const [debates, setDebates] = useState<SidebarDebate[] | null>(null);
   const [zoteroOpen, setZoteroOpen] = useState(false);
   const collapsed = useSyncExternalStore(
     subscribeSidebarToggle,
@@ -46,6 +54,10 @@ export function Sidebar() {
     fetch("/api/compare")
       .then((res) => res.json())
       .then((json) => setComparisons(json.items))
+      .catch(() => {});
+    fetch("/api/debate")
+      .then((res) => res.json())
+      .then((json) => setDebates(json.debates))
       .catch(() => {});
   }, []);
 
@@ -157,6 +169,34 @@ export function Sidebar() {
         ))}
       </div>
 
+      <div className="mt-4">
+        <Link
+          href="/debate"
+          className={`flex items-center gap-1.5 rounded-sm px-2 py-1 text-xs font-semibold text-steel transition-colors hover:bg-black/[0.045] ${
+            pathname === "/debate" ? "text-ink" : ""
+          }`}
+        >
+          <Scales size={15} className="shrink-0" />
+          辯論
+          {debates && <span className="ml-auto font-mono text-[11px] font-normal">{debates.length}</span>}
+        </Link>
+        {debates?.map((debate) => (
+          <SidebarLink
+            key={debate.id}
+            href={`/debate/${debate.id}`}
+            active={pathname === `/debate/${debate.id}`}
+          >
+            <span className="flex min-w-0 flex-1 flex-col items-start">
+              <span className="max-w-full truncate text-[13px]">{debate.motion}</span>
+              <span className="font-mono text-[11px] text-steel">
+                {debate.status === "running" ? "進行中" : debate.status === "failed" ? "失敗" : "已判決"} ·{" "}
+                {debate.createdAt.slice(5, 10)}
+              </span>
+            </span>
+          </SidebarLink>
+        ))}
+      </div>
+
       <div className="mt-auto flex flex-col gap-1.5 pt-4">
         <button
           type="button"
@@ -173,6 +213,10 @@ export function Sidebar() {
           <UploadSimple size={16} className="shrink-0" />
           上傳 PDF 加入工作區
         </Link>
+        <SidebarLink href="/settings" active={pathname === "/settings"}>
+          <GearSix size={16} className="shrink-0 text-slate" />
+          <span className="text-[13px] font-medium">設定</span>
+        </SidebarLink>
       </div>
 
       {zoteroOpen && (

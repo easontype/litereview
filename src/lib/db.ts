@@ -5,6 +5,8 @@ import { createHash } from "node:crypto";
 import type { PaperResult } from "./scholarly/types";
 import type { KeypointsData } from "./keypoints/parse";
 import type { CompareData } from "./compare/parse";
+import type { ReviewData } from "./review/parse";
+import type { DebateTurn, DebateVerdict } from "./debate/parse";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const DB_PATH = path.join(DATA_DIR, "litereview.db");
@@ -64,6 +66,24 @@ export function ensureSchema() {
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
       value TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS reviews (
+      paper_id TEXT PRIMARY KEY REFERENCES papers(id),
+      result_json TEXT,
+      seat_info TEXT,
+      created_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS debates (
+      id TEXT PRIMARY KEY,
+      motion TEXT,
+      paper_ids TEXT,
+      seats_json TEXT,
+      transcript_json TEXT,
+      verdict_json TEXT,
+      status TEXT,
+      created_at TEXT
     );
 
     CREATE TABLE IF NOT EXISTS journal_ranks (
@@ -312,6 +332,44 @@ export function saveKeypoints(paperId: string, fulltextSource: string, data: Key
   });
 }
 
+export interface ReviewRow {
+  paperId: string;
+  data: ReviewData;
+  seatInfo: string;
+  createdAt: string;
+}
+
+export function getReview(paperId: string): ReviewRow | undefined {
+  const row = db
+    .prepare(`SELECT paper_id, result_json, seat_info, created_at FROM reviews WHERE paper_id = ?`)
+    .get(paperId) as
+    | { paper_id: string; result_json: string; seat_info: string; created_at: string }
+    | undefined;
+  if (!row) return undefined;
+  return {
+    paperId: row.paper_id,
+    data: JSON.parse(row.result_json) as ReviewData,
+    seatInfo: row.seat_info,
+    createdAt: row.created_at,
+  };
+}
+
+export function saveReview(paperId: string, data: ReviewData, seatInfo: string) {
+  db.prepare(
+    `INSERT INTO reviews (paper_id, result_json, seat_info, created_at)
+     VALUES (@paperId, @resultJson, @seatInfo, @createdAt)
+     ON CONFLICT(paper_id) DO UPDATE SET
+       result_json = excluded.result_json,
+       seat_info = excluded.seat_info,
+       created_at = excluded.created_at`
+  ).run({
+    paperId,
+    resultJson: JSON.stringify(data),
+    seatInfo,
+    createdAt: new Date().toISOString(),
+  });
+}
+
 export interface ComparisonListItem {
   id: string;
   paperIds: string[];
@@ -360,4 +418,102 @@ export function saveComparison(paperIds: string[], result: CompareData): string 
     createdAt: new Date().toISOString(),
   });
   return id;
+}
+
+export interface DebateListItem {
+  id: string;
+  motion: string;
+  paperIds: string[];
+  titles: string[];
+  status: string;
+  createdAt: string;
+}
+
+export interface DebateRow {
+  id: string;
+  motion: string;
+  paperIds: string[];
+  titles: string[];
+  seats: Record<string, string>;
+  transcript: DebateTurn[];
+  verdict: DebateVerdict | null;
+  status: "running" | "done" | "failed";
+  createdAt: string;
+}
+
+export function createDebate(motion: string, paperIds: string[], seats: Record<string, string>): string {
+  const id = createHash("sha1").update(motion + paperIds.join(",") + Date.now()).digest("hex").slice(0, 16);
+  db.prepare(
+    `INSERT INTO debates (id, motion, paper_ids, seats_json, transcript_json, verdict_json, status, created_at)
+     VALUES (@id, @motion, @paperIds, @seatsJson, '[]', NULL, 'running', @createdAt)`
+  ).run({
+    id,
+    motion,
+    paperIds: JSON.stringify(paperIds),
+    seatsJson: JSON.stringify(seats),
+    createdAt: new Date().toISOString(),
+  });
+  return id;
+}
+
+export function updateDebateTranscript(id: string, transcript: DebateTurn[]) {
+  db.prepare(`UPDATE debates SET transcript_json = ? WHERE id = ?`).run(JSON.stringify(transcript), id);
+}
+
+export function finishDebate(id: string, verdict: DebateVerdict) {
+  db.prepare(`UPDATE debates SET verdict_json = ?, status = 'done' WHERE id = ?`).run(
+    JSON.stringify(verdict),
+    id
+  );
+}
+
+export function failDebate(id: string) {
+  db.prepare(`UPDATE debates SET status = 'failed' WHERE id = ?`).run(id);
+}
+
+export function getDebate(id: string): DebateRow | undefined {
+  const row = db
+    .prepare(
+      `SELECT id, motion, paper_ids, seats_json, transcript_json, verdict_json, status, created_at
+       FROM debates WHERE id = ?`
+    )
+    .get(id) as
+    | {
+        id: string;
+        motion: string;
+        paper_ids: string;
+        seats_json: string;
+        transcript_json: string;
+        verdict_json: string | null;
+        status: string;
+        created_at: string;
+      }
+    | undefined;
+  if (!row) return undefined;
+  const paperIds = JSON.parse(row.paper_ids) as string[];
+  const titleStmt = db.prepare(`SELECT title FROM papers WHERE id = ?`);
+  const titles = paperIds.map((pid) => (titleStmt.get(pid) as { title: string } | undefined)?.title ?? pid);
+  return {
+    id: row.id,
+    motion: row.motion,
+    paperIds,
+    titles,
+    seats: JSON.parse(row.seats_json) as Record<string, string>,
+    transcript: JSON.parse(row.transcript_json) as DebateTurn[],
+    verdict: row.verdict_json ? (JSON.parse(row.verdict_json) as DebateVerdict) : null,
+    status: row.status as DebateRow["status"],
+    createdAt: row.created_at,
+  };
+}
+
+export function listDebates(): DebateListItem[] {
+  const rows = db
+    .prepare(`SELECT id, motion, paper_ids, status, created_at FROM debates ORDER BY created_at DESC`)
+    .all() as Array<{ id: string; motion: string; paper_ids: string; status: string; created_at: string }>;
+  const titleStmt = db.prepare(`SELECT title FROM papers WHERE id = ?`);
+  return rows.map((r) => {
+    const paperIds = JSON.parse(r.paper_ids) as string[];
+    const titles = paperIds.map((pid) => (titleStmt.get(pid) as { title: string } | undefined)?.title ?? pid);
+    return { id: r.id, motion: r.motion, paperIds, titles, status: r.status, createdAt: r.created_at };
+  });
 }

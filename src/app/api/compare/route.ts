@@ -3,7 +3,7 @@ import { getPaper, saveComparison, listComparisons } from "@/lib/db";
 import { ensureKeypoints } from "@/lib/keypoints/analyze";
 import { buildComparePrompt } from "@/lib/compare/prompt";
 import { parseCompareResponse } from "@/lib/compare/parse";
-import { runClaude } from "@/lib/llm/claude-cli";
+import { resolveSeat } from "@/lib/llm/registry";
 
 export async function GET() {
   return NextResponse.json({ items: listComparisons() });
@@ -30,7 +30,8 @@ export async function POST(req: NextRequest) {
     }
 
     const prompt = buildComparePrompt(papers);
-    const raw = await runClaude(prompt);
+    const seat = resolveSeat("compare");
+    const raw = await seat.provider.chat(prompt, { model: seat.model });
     const result = parseCompareResponse(raw, papers.length);
     const id = saveComparison(paperIds as string[], result);
 
