@@ -8,7 +8,7 @@
 
 ## 技術棧
 
-Next.js 16（App Router）+ TypeScript + Tailwind CSS v4，`better-sqlite3` 本機資料庫。重量任務（找重點、比較）透過 `claude -p` CLI subprocess 呼叫，走你本機 Claude Code 訂閱的登入 token，**不吃 `ANTHROPIC_API_KEY`、不額外計費**。
+Next.js 16（App Router）+ TypeScript + Tailwind CSS v4，`better-sqlite3` 本機資料庫，`@phosphor-icons/react` 提供側邊欄圖示。重量任務（找重點、比較）透過 `claude -p` CLI subprocess 呼叫，走你本機 Claude Code 訂閱的登入 token，**不吃 `ANTHROPIC_API_KEY`、不額外計費**。
 
 ## 前置需求
 
@@ -41,9 +41,12 @@ npm run dev
 
 ## 使用流程
 
-1. 首頁輸入關鍵字／arXiv ID／DOI 搜尋 → 對想追蹤的論文按「加入工作區」；找不到線上索引的論文也可以在「工作區」頁直接上傳 PDF 加入
-2. 到「工作區」頁，對任一篇論文按「找重點」→ 系統抓全文並跑深度分析（有全文的情況下通常 1–2 分鐘內完成）
-3. 找重點完成後，到「比較」頁勾選 2–6 篇（可跨已/未分析論文，未分析的會自動先跑找重點）→ 按「比較」→ 取得表格 + 綜合結論
+1. 左側邊欄「搜尋文獻」輸入關鍵字／arXiv ID／DOI → 對想追蹤的論文按「加入工作區」；找不到線上索引的論文也可以在「工作區」頁直接上傳 PDF 加入（側邊欄底部也有捷徑）
+2. 到「工作區」頁，對任一篇論文按「找重點」→ 系統抓全文並跑深度分析（有全文的情況下通常 1–2 分鐘內完成）；側邊欄的論文清單會即時顯示分析狀態（綠點＝已分析、琥珀空心＝僅摘要、灰空心＝未分析）
+3. 在「工作區」頁勾選 2–6 篇**已分析**的論文，畫面下方會浮出「比較」按鈕 → 按下後帶到「比較」頁預選這幾篇 → 執行比較取得五維度表格 + 綜合結論
+4. 每次比較結果都會存檔，側邊欄「比較」區塊列出歷史紀錄，點擊可隨時回訪任一次的完整結果
+
+側邊欄可收合（狀態記在瀏覽器 localStorage），收合後點左上角圖示可再展開。
 
 ## 資料存放
 
@@ -54,8 +57,27 @@ npm run dev
 ```bash
 npm run lint       # ESLint
 npx tsc --noEmit   # TypeScript 型別檢查
-npx playwright test  # 端對端測試（需先啟動 dev server）
 ```
+
+### 端對端測試
+
+測試會自行播種資料（不依賴既有 DB 狀態），可整套連續跑。先在一個終端機啟動 server：
+
+```bash
+npm run build && npx next start -p 3010   # 或用 npm run dev 開發模式
+```
+
+再另開一個終端機執行測試，透過 `LR_BASE_URL` 指定 server 位址：
+
+```bash
+LR_BASE_URL=http://localhost:3010 npx playwright test tests --workers=1
+```
+
+> `phase3-keypoints.spec.ts` 與 `phase4-compare.spec.ts` 會真的呼叫 `claude -p` 跑分析，需要本機 `claude` CLI 已登入，執行時間可能長達數分鐘。
+
+## 設計系統
+
+UI 採側邊欄 App Shell 版型，配色與排版規則定義在 [`DESIGN.md`](./DESIGN.md)。
 
 ## License
 
