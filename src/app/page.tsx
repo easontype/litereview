@@ -27,7 +27,10 @@ export default function Home() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ paper }),
     });
-    if (res.ok) setAddedKeys((prev) => new Set(prev).add(key));
+    if (res.ok) {
+      setAddedKeys((prev) => new Set(prev).add(key));
+      window.dispatchEvent(new Event("lr:refresh"));
+    }
   }
 
   async function handleSearch(e: React.FormEvent) {
@@ -51,66 +54,58 @@ export default function Home() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-4 pb-24 pt-10">
-      <h1 className="text-[32px] font-extrabold leading-[1.1] tracking-tight">搜尋文獻</h1>
-      <p className="mt-1.5 text-sm leading-[1.55] text-foreground/55">
-        輸入關鍵字、arXiv ID 或 DOI
-      </p>
+    <div className="mx-auto w-full max-w-[720px] px-8 pb-24 pt-10">
+      <h1 className="font-serif text-[30px] font-bold leading-[1.25] tracking-[-0.3px]">搜尋文獻</h1>
+      <p className="mt-1.5 text-sm text-slate">輸入關鍵字、arXiv ID 或 DOI，多來源合併去重</p>
 
       <form onSubmit={handleSearch} className="mt-6 flex gap-2">
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="transformer attention / 2301.12345 / 10.1145/..."
-          className="h-11 flex-1 border border-black/15 bg-transparent px-3 text-sm outline-none placeholder:text-foreground/35 focus:border-foreground/40 dark:border-white/15"
+          className="h-10 flex-1 rounded-sm border border-hairline-strong bg-canvas px-3 text-sm outline-none placeholder:text-steel focus:border-primary focus:ring-2 focus:ring-primary-tint"
         />
         <button
           type="submit"
           disabled={loading}
-          className="h-11 shrink-0 bg-foreground px-5 text-sm font-medium text-background transition-opacity hover:opacity-85 disabled:opacity-40"
+          className="h-10 shrink-0 rounded-sm bg-primary px-5 text-sm font-medium text-on-primary transition-colors hover:bg-primary-pressed disabled:cursor-not-allowed disabled:bg-hairline disabled:text-steel"
         >
           {loading ? "搜尋中…" : "搜尋"}
         </button>
       </form>
 
-      {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
+      {error && <p className="mt-4 text-sm text-error">{error}</p>}
 
       {results && (
-        <div className="mt-8">
-          <p className="mb-3 text-xs font-medium tracking-wide text-foreground/45">
-            {results.length} 筆結果
-          </p>
-          <ul className="divide-y divide-black/10 border-t border-black/10 dark:divide-white/10 dark:border-white/10">
+        <div className="mt-7">
+          <p className="mb-3 text-xs text-steel">{results.length} 筆結果</p>
+          <ul className="divide-y divide-hairline border-t border-hairline">
             {results.map((paper, i) => {
               const added = addedKeys.has(paperKey(paper));
               return (
-                <li key={paper.arxivId ?? paper.doi ?? `${paper.title}-${i}`} className="py-5">
+                <li key={paper.arxivId ?? paper.doi ?? `${paper.title}-${i}`} className="py-[18px]">
                   <div className="flex items-start justify-between gap-4">
                     <div className="min-w-0 flex-1">
-                      <h2 className="font-serif text-lg font-semibold leading-[1.2] text-foreground">
+                      <h2 className="font-serif text-[17px] font-semibold leading-[1.3]">
                         {paper.title || "（無標題）"}
                       </h2>
-                      <p className="mt-1 text-[13px] leading-[1.55] text-foreground/55">
+                      <p className="mt-1 text-[13px] text-slate">
                         {paper.authors.slice(0, 4).join(", ")}
                         {paper.authors.length > 4 ? " 等" : ""}
                         {paper.year ? ` · ${paper.year}` : ""}
                         {paper.venue ? ` · ${paper.venue}` : ""}
                       </p>
 
-                      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-foreground/45">
-                        <span className="font-mono">{SOURCE_LABEL[paper.source]}</span>
-                        {paper.citationCount !== null && (
-                          <span className="font-mono">被引 {paper.citationCount}</span>
-                        )}
-                        {paper.quality?.hIndex != null && (
-                          <span className="font-mono">h-index {paper.quality.hIndex}</span>
-                        )}
-                        {paper.arxivId && <span className="font-mono">arXiv:{paper.arxivId}</span>}
-                        {paper.doi && <span className="font-mono">{paper.doi}</span>}
+                      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-steel">
+                        <span>{SOURCE_LABEL[paper.source]}</span>
+                        {paper.citationCount !== null && <span>被引 {paper.citationCount}</span>}
+                        {paper.quality?.hIndex != null && <span>h-index {paper.quality.hIndex}</span>}
+                        {paper.arxivId && <span>arXiv:{paper.arxivId}</span>}
+                        {paper.doi && <span>{paper.doi}</span>}
                       </div>
 
                       {paper.abstract && (
-                        <p className="mt-2 line-clamp-2 text-[13px] leading-[1.7] text-foreground/70">
+                        <p className="mt-1.5 line-clamp-2 text-[13px] leading-[1.6] text-slate">
                           {paper.abstract}
                         </p>
                       )}
@@ -120,7 +115,7 @@ export default function Home() {
                       type="button"
                       onClick={() => handleAdd(paper)}
                       disabled={added}
-                      className="h-8 shrink-0 self-start border border-black/15 px-3 text-xs font-medium transition-colors hover:border-foreground/40 disabled:opacity-40 dark:border-white/15"
+                      className="shrink-0 self-start rounded-sm border border-hairline-strong px-3 py-1.5 text-[13px] font-medium transition-colors hover:border-slate disabled:cursor-default disabled:opacity-45 disabled:hover:border-hairline-strong"
                     >
                       {added ? "已加入" : "加入工作區"}
                     </button>

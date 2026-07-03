@@ -1,7 +1,6 @@
 "use client";
 
 import { use, useEffect, useState } from "react";
-import Link from "next/link";
 
 interface KeypointsData {
   paperId: string;
@@ -18,6 +17,14 @@ interface KeypointsData {
   analyzedAt: string;
 }
 
+interface WorkspaceItem {
+  id: string;
+  title: string;
+  source: string;
+  arxivId: string | null;
+  doi: string | null;
+}
+
 const SOURCE_LABEL: Record<string, string> = {
   arxiv: "arXiv 全文",
   upload: "上傳 PDF",
@@ -28,6 +35,7 @@ const SOURCE_LABEL: Record<string, string> = {
 export default function KeypointsPage({ params }: { params: Promise<{ paperId: string }> }) {
   const { paperId } = use(params);
   const [keypoints, setKeypoints] = useState<KeypointsData | null>(null);
+  const [paper, setPaper] = useState<WorkspaceItem | null>(null);
   const [status, setStatus] = useState<"loading" | "analyzing" | "done" | "failed">("loading");
   const [error, setError] = useState<string | null>(null);
 
@@ -44,6 +52,7 @@ export default function KeypointsPage({ params }: { params: Promise<{ paperId: s
       if (json.status === "done") {
         setKeypoints(json.keypoints);
         setStatus("done");
+        window.dispatchEvent(new Event("lr:refresh"));
       } else {
         setError(json.error ?? "分析失敗");
         setStatus("failed");
@@ -56,6 +65,13 @@ export default function KeypointsPage({ params }: { params: Promise<{ paperId: s
 
   useEffect(() => {
     let ignore = false;
+    fetch("/api/workspace/papers")
+      .then((res) => res.json())
+      .then((json) => {
+        if (ignore) return;
+        const item = (json.items as WorkspaceItem[]).find((it) => it.id === paperId);
+        if (item) setPaper(item);
+      });
     fetch(`/api/keypoints/${paperId}`)
       .then((res) => (res.ok ? res.json() : null))
       .then((json) => {
@@ -74,24 +90,34 @@ export default function KeypointsPage({ params }: { params: Promise<{ paperId: s
   }, [paperId]);
 
   return (
-    <div className="mx-auto w-full max-w-3xl px-4 pb-24 pt-10">
-      <Link href="/workspace" className="text-xs text-foreground/45 hover:text-foreground/70">
-        ← 回工作區
-      </Link>
+    <div className="mx-auto w-full max-w-[720px] px-8 pb-24 pt-10">
+      {paper && (
+        <>
+          <h1 className="font-serif text-[30px] font-bold leading-[1.25] tracking-[-0.3px]">
+            {paper.title || "（無標題）"}
+          </h1>
+          <p className="mt-2 font-mono text-[12px] text-slate">
+            {[paper.arxivId && `arXiv:${paper.arxivId}`, paper.doi].filter(Boolean).join(" · ")}
+          </p>
+        </>
+      )}
 
-      {status === "loading" && <p className="mt-8 text-sm text-foreground/45">載入中…</p>}
+      {status === "loading" && <p className="mt-8 text-sm text-steel">載入中…</p>}
 
       {status === "analyzing" && (
-        <p className="mt-8 text-sm text-foreground/55">分析中，全文擷取＋LLM 分析可能需要數分鐘，請稍候…</p>
+        <div className="mt-8 flex items-center gap-2.5 text-sm text-slate">
+          <span className="h-2 w-2 animate-pulse rounded-full bg-warning" />
+          分析中，全文擷取＋LLM 分析可能需要數分鐘，請稍候…
+        </div>
       )}
 
       {status === "failed" && (
         <div className="mt-8">
-          <p className="text-sm text-red-600">分析失敗：{error}</p>
+          <p className="text-sm text-error">分析失敗：{error}</p>
           <button
             type="button"
             onClick={() => runAnalysis(true)}
-            className="mt-3 h-9 border border-black/15 px-4 text-xs font-medium transition-colors hover:border-foreground/40 dark:border-white/15"
+            className="mt-3 rounded-sm border border-hairline-strong px-4 py-1.5 text-[13px] font-medium transition-colors hover:border-slate"
           >
             重試
           </button>
@@ -99,27 +125,31 @@ export default function KeypointsPage({ params }: { params: Promise<{ paperId: s
       )}
 
       {status === "done" && keypoints && (
-        <div className="mt-6">
+        <div className="mt-4">
           {keypoints.fulltextSource === "abstract_only" && (
-            <div className="mb-6 border border-amber-400/60 bg-amber-50 px-4 py-3 text-sm leading-[1.6] text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+            <div className="mb-5 rounded-r-sm border-l-[3px] border-warning bg-[#fff8e6] px-3.5 py-2.5 text-[13px] leading-[1.6]">
               僅摘要分析：找不到論文全文，以下結果僅根據摘要推論，可信度較低。
             </div>
           )}
 
-          <div className="flex items-center justify-between">
-            <span className="font-mono text-[11px] text-foreground/45">
+          <div className="flex items-center gap-2.5">
+            <span className="inline-flex items-center rounded-xs border border-hairline bg-surface-soft px-2 py-0.5 font-mono text-[11px] text-slate">
               {SOURCE_LABEL[keypoints.fulltextSource] ?? keypoints.fulltextSource}
             </span>
+            <span className="font-mono text-[11px] text-steel">
+              分析於 {keypoints.analyzedAt.slice(0, 16).replace("T", " ")}
+            </span>
+            <span className="flex-1" />
             <button
               type="button"
               onClick={() => runAnalysis(true)}
-              className="h-8 border border-black/15 px-3 text-xs font-medium transition-colors hover:border-foreground/40 dark:border-white/15"
+              className="rounded-sm border border-hairline-strong px-3 py-1.5 text-[13px] font-medium transition-colors hover:border-slate"
             >
               重新分析
             </button>
           </div>
 
-          <dl className="mt-6 divide-y divide-black/10 border-t border-black/10 dark:divide-white/10 dark:border-white/10">
+          <dl className="mt-6 divide-y divide-hairline border-t border-hairline">
             <Field label="研究問題" value={keypoints.researchQuestion} />
             <Field label="研究方法" value={keypoints.methodology} />
             <Field label="主要發現" value={keypoints.keyFindings} />
@@ -128,7 +158,21 @@ export default function KeypointsPage({ params }: { params: Promise<{ paperId: s
             <Field label="侷限性" value={keypoints.limitations} />
             <Field label="新穎度" value={`${keypoints.noveltyRating} — ${keypoints.noveltyReason}`} />
             {keypoints.keyFormulasOrAlgorithms.length > 0 && (
-              <Field label="關鍵公式／演算法" value={keypoints.keyFormulasOrAlgorithms.join("；")} />
+              <div className="py-5">
+                <dt className="font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-steel">
+                  關鍵公式／演算法
+                </dt>
+                <dd className="mt-2 space-y-2">
+                  {keypoints.keyFormulasOrAlgorithms.map((formula, i) => (
+                    <div
+                      key={i}
+                      className="overflow-x-auto rounded-sm bg-surface px-3.5 py-2.5 font-mono text-[13px] leading-[1.8]"
+                    >
+                      {formula}
+                    </div>
+                  ))}
+                </dd>
+              </div>
             )}
           </dl>
         </div>
@@ -140,8 +184,8 @@ export default function KeypointsPage({ params }: { params: Promise<{ paperId: s
 function Field({ label, value }: { label: string; value: string }) {
   return (
     <div className="py-5">
-      <dt className="font-mono text-[10px] font-semibold uppercase tracking-wide text-foreground/40">{label}</dt>
-      <dd className="mt-1.5 text-sm leading-[1.7] text-foreground/85">{value}</dd>
+      <dt className="font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-steel">{label}</dt>
+      <dd className="mt-1.5 text-[15px] leading-[1.7]">{value}</dd>
     </div>
   );
 }

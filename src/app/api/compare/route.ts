@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getPaper, saveComparison } from "@/lib/db";
+import { getPaper, saveComparison, listComparisons } from "@/lib/db";
 import { ensureKeypoints } from "@/lib/keypoints/analyze";
 import { buildComparePrompt } from "@/lib/compare/prompt";
 import { parseCompareResponse } from "@/lib/compare/parse";
 import { runClaude } from "@/lib/llm/claude-cli";
+
+export async function GET() {
+  return NextResponse.json({ items: listComparisons() });
+}
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);

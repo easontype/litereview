@@ -58,3 +58,6 @@ next-env.d.ts
 
 # claude code local state
 /.claude/
+
+# design prototype screenshots (regenerable)
+design-prototype/*.png

@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>litereview — App Shell 原型（balanced）</title>
+<!--
+  huashu-design Junior pass → Full pass
+  設計系統：../DESIGN.md（balanced 變種，2026-07-03 定案）
+  參照畫面：../.claude/tmp/reference-screenshot.png（Notion app 淺色）
+  assumptions：
+  - 側欄 264px、可收合（instant toggle，不動畫 layout 屬性）
+  - 藍色 #0075de 只出現在：主按鈕 / active 指示 / 連結，其餘一律中性色
+  - 論文標題 serif（Noto Serif TC / Georgia），UI 文字 system sans
+  - 狀態 = 色點 + 文字，不用大色塊；密度適中（清單行高 44px）
+  - 比較發起 = 工作區勾選 ≥2 篇浮出主按鈕（新流程，取代舊獨立勾選頁）
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --canvas: #ffffff;
+    --surface: #f6f8fa;
+    --surface-soft: #fafbfc;
+    --primary-soft: #eef6fd;
+    --primary-tint: #dcecfa;
+    --ink: #1f2328;
+    --slate: #57606a;
+    --steel: #8b949e;
+    --hairline: #e3e8ee;
+    --hairline-strong: #c9d2dc;
+    --primary: #0075de;
+    --primary-pressed: #005bab;
+    --on-primary: #ffffff;
+    --success: #1a7f37;
+    --warning: #9a6700;
+    --error: #d1242f;
+    --r-xs: 4px; --r-sm: 4px; --r-md: 8px; --r-lg: 16px;
+    --shadow-subtle: 0 1px 2px rgba(15,15,15,.06), 0 1px 3px rgba(15,15,15,.04);
+    --shadow-popover: 0 4px 16px rgba(15,15,15,.12);
+    --serif: "Noto Serif TC", Georgia, serif;
+    --sans: -apple-system, "Segoe UI", "Microsoft JhengHei", system-ui, sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: var(--sans);
+    font-size: 15px; line-height: 1.55;
+    color: var(--ink); background: var(--canvas);
+  }
+  button { font-family: inherit; cursor: pointer; }
+
+  /* ── Shell ─────────────────────────────── */
+  .shell { display: grid; grid-template-columns: 264px 1fr; height: 100dvh; }
+  body.collapsed .shell { grid-template-columns: 0 1fr; }
+  body.collapsed .sidebar { display: none; }
+
+  /* ── Sidebar ───────────────────────────── */
+  .sidebar {
+    background: var(--surface);
+    border-right: 1px solid var(--hairline);
+    display: flex; flex-direction: column;
+    overflow-y: auto; padding: 12px 8px 8px;
+  }
+  .brand {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 8px 14px;
+  }
+  .brand-mark {
+    width: 22px; height: 22px; border-radius: var(--r-xs);
+    background: var(--primary); color: var(--on-primary);
+    display: grid; place-items: center;
+    font-family: var(--serif); font-size: 13px; font-weight: 700;
+  }
+  .brand-name { font-weight: 600; font-size: 15px; letter-spacing: -0.2px; }
+
+  .nav-item, .paper-item, .history-item {
+    display: flex; align-items: center; gap: 8px;
+    width: 100%; border: 0; background: none; text-align: left;
+    border-radius: var(--r-sm); color: var(--ink);
+    transition: background .12s ease-out;
+  }
+  .nav-item { min-height: 32px; padding: 5px 8px; font-size: 14px; font-weight: 500; }
+  .nav-item:hover, .paper-item:hover, .history-item:hover { background: rgba(0,0,0,.045); }
+  .nav-item .icon, .group-head .icon { color: var(--slate); flex: none; }
+
+  .active-item { background: var(--primary-soft) !important; position: relative; }
+  .active-item::before {
+    content: ""; position: absolute; left: -8px; top: 6px; bottom: 6px;
+    width: 2px; border-radius: 1px; background: var(--primary);
+  }
+
+  .group { margin-top: 18px; }
+  .group-head {
+    display: flex; align-items: center; gap: 6px;
+    padding: 2px 8px 6px;
+    font-size: 12px; font-weight: 600; color: var(--steel);
+  }
+  .group-head .count { margin-left: auto; font-weight: 400; font-family: var(--mono); font-size: 11px; }
+
+  .paper-item { min-height: 30px; padding: 4px 8px 4px 10px; font-size: 13px; }
+  .paper-title { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--ink); }
+  .paper-item .dot { flex: none; }
+
+  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .dot-done      { background: var(--success); }
+  .dot-running   { background: var(--warning); animation: pulse 1.2s ease-in-out infinite; }
+  .dot-abstract  { background: transparent; border: 2px solid var(--warning); width: 6px; height: 6px; }
+  .dot-none      { background: transparent; border: 1.5px solid var(--hairline-strong); width: 7px; height: 7px; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+
+  .history-item { padding: 5px 8px; font-size: 13px; flex-direction: column; align-items: flex-start; gap: 1px; }
+  .history-title { font-size: 13px; color: var(--ink); overflow: hidden; white-space: nowrap; text-overflow: ellipsis; max-width: 100%; }
+  .history-meta { font-size: 11px; color: var(--steel); font-family: var(--mono); }
+
+  .sidebar-foot { margin-top: auto; padding-top: 16px; }
+  .upload-entry {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    min-height: 34px; padding: 6px 8px;
+    border: 1px dashed var(--hairline-strong); border-radius: var(--r-sm);
+    background: none; color: var(--slate); font-size: 13px; font-weight: 500;
+    transition: border-color .12s ease-out, color .12s ease-out;
+  }
+  .upload-entry:hover { border-color: var(--slate); color: var(--ink); }
+
+  /* ── Main ──────────────────────────────── */
+  .main { display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+  .topbar {
+    display: flex; align-items: center; gap: 10px;
+    height: 46px; padding: 0 16px; flex: none;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .icon-btn {
+    display: grid; place-items: center; width: 30px; height: 30px;
+    border: 0; background: none; border-radius: var(--r-sm); color: var(--slate);
+    transition: background .12s ease-out;
+  }
+  .icon-btn:hover { background: rgba(0,0,0,.05); }
+  .crumb { font-size: 13px; color: var(--steel); }
+  .crumb b { color: var(--ink); font-weight: 500; }
+
+  .content { flex: 1; overflow-y: auto; }
+  .view { display: none; animation: enter .2s ease-out; }
+  .view.on { display: block; }
+  @keyframes enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+  .col { max-width: 720px; margin: 0 auto; padding: 40px 32px 96px; }
+  .col-wide { max-width: 960px; }
+
+  h1.page { font-family: var(--serif); font-size: 30px; font-weight: 700; line-height: 1.25; letter-spacing: -0.3px; }
+  .page-sub { margin-top: 6px; font-size: 14px; color: var(--slate); }
+
+  /* buttons */
+  .btn-primary {
+    background: var(--primary); color: var(--on-primary);
+    border: 0; border-radius: var(--r-sm);
+    padding: 7px 16px; font-size: 14px; font-weight: 500;
+    transition: background .12s ease-out;
+  }
+  .btn-primary:hover { background: var(--primary-pressed); }
+  .btn-secondary {
+    background: none; color: var(--ink);
+    border: 1px solid var(--hairline-strong); border-radius: var(--r-sm);
+    padding: 6px 12px; font-size: 13px; font-weight: 500;
+    transition: border-color .12s ease-out;
+  }
+  .btn-secondary:hover { border-color: var(--slate); }
+  .btn-ghost {
+    background: none; border: 0; color: var(--slate);
+    padding: 6px 10px; border-radius: var(--r-sm); font-size: 13px; font-weight: 500;
+  }
+  .btn-ghost:hover { background: rgba(0,0,0,.05); }
+
+  /* status text chip（色點 + 文字，非色塊） */
+  .status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+  .status.s-done { color: var(--success); }
+  .status.s-running { color: var(--warning); }
+  .status.s-abstract { color: var(--warning); }
+  .status.s-none { color: var(--steel); }
+
+  /* ── 搜尋 view ─────────────────────────── */
+  .search-bar { display: flex; gap: 8px; margin-top: 24px; }
+  .search-bar input {
+    flex: 1; height: 40px; padding: 0 12px;
+    border: 1px solid var(--hairline-strong); border-radius: var(--r-sm);
+    font: inherit; font-size: 14px; color: var(--ink); background: var(--canvas);
+  }
+  .search-bar input::placeholder { color: var(--steel); }
+  .search-bar input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px var(--primary-tint); }
+
+  .result-list { margin-top: 28px; border-top: 1px solid var(--hairline); }
+  .result { display: flex; gap: 16px; padding: 18px 0; border-bottom: 1px solid var(--hairline); }
+  .result h3 { font-family: var(--serif); font-size: 17px; font-weight: 600; line-height: 1.3; }
+  .result .meta { margin-top: 3px; font-size: 13px; color: var(--slate); }
+  .result .signals { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 12px; font-family: var(--mono); font-size: 11px; color: var(--steel); }
+  .result .abs { margin-top: 6px; font-size: 13px; line-height: 1.6; color: var(--slate);
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .result-side { flex: none; align-self: flex-start; }
+  .count-line { margin-top: 20px; font-size: 12px; color: var(--steel); }
+
+  /* ── 工作區 view ───────────────────────── */
+  .ws-head { display: flex; align-items: baseline; justify-content: space-between; }
+  .ws-list { margin-top: 24px; border-top: 1px solid var(--hairline); }
+  .ws-row { display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 12px 0; border-bottom: 1px solid var(--hairline); }
+  .ws-row input[type=checkbox] { width: 15px; height: 15px; accent-color: var(--primary); flex: none; }
+  .ws-body { min-width: 0; flex: 1; }
+  .ws-title { font-family: var(--serif); font-size: 16px; font-weight: 600; line-height: 1.3;
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .ws-meta { margin-top: 3px; display: flex; gap: 12px; align-items: center; font-size: 12px; color: var(--steel); }
+  .ws-meta .src { font-family: var(--mono); font-size: 11px; }
+  .ws-actions { flex: none; display: flex; gap: 8px; }
+
+  .compare-float {
+    position: sticky; bottom: 24px; margin-top: 24px;
+    display: none; justify-content: center;
+  }
+  .compare-float.on { display: flex; }
+  .compare-float .inner {
+    display: flex; align-items: center; gap: 12px;
+    background: var(--canvas); border: 1px solid var(--hairline);
+    border-radius: var(--r-md); box-shadow: var(--shadow-popover);
+    padding: 10px 12px 10px 16px; font-size: 13px; color: var(--slate);
+  }
+
+  /* ── keypoints view ────────────────────── */
+  .kp-warn {
+    margin-bottom: 24px; padding: 10px 14px;
+    background: #fff8e6; border-left: 3px solid var(--warning);
+    border-radius: 0 var(--r-sm) var(--r-sm) 0;
+    font-size: 13px; line-height: 1.6;
+  }
+  .kp-title { font-family: var(--serif); font-size: 30px; font-weight: 700; line-height: 1.25; letter-spacing: -0.3px; }
+  .kp-meta { margin-top: 8px; font-size: 13px; color: var(--slate); }
+  .kp-toolbar { margin-top: 14px; display: flex; align-items: center; gap: 10px; }
+  .src-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-family: var(--mono); font-size: 11px; color: var(--slate);
+    border: 1px solid var(--hairline); border-radius: var(--r-xs);
+    padding: 3px 8px; background: var(--surface-soft);
+  }
+  .kp-fields { margin-top: 28px; border-top: 1px solid var(--hairline); }
+  .kp-field { padding: 20px 0; border-bottom: 1px solid var(--hairline); }
+  .kp-label { font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: .08em; color: var(--steel); text-transform: uppercase; }
+  .kp-value { margin-top: 7px; font-size: 15px; line-height: 1.7; color: var(--ink); }
+  .kp-value .nv { font-weight: 600; }
+  .formula {
+    margin-top: 8px; padding: 10px 14px;
+    background: var(--surface); border-radius: var(--r-sm);
+    font-family: var(--mono); font-size: 13px; line-height: 1.8; overflow-x: auto;
+  }
+
+  /* ── 比較 view ─────────────────────────── */
+  .cmp-table-wrap { margin-top: 28px; overflow-x: auto; }
+  table.cmp { border-collapse: collapse; width: 100%; min-width: 760px; }
+  .cmp thead th {
+    background: var(--surface); text-align: left;
+    font-family: var(--serif); font-size: 14px; font-weight: 600; line-height: 1.35;
+    padding: 12px 16px; border: 1px solid var(--hairline); vertical-align: top;
+  }
+  .cmp thead th.dim-col { width: 96px; }
+  .cmp thead .th-meta { display: block; margin-top: 4px; font-family: var(--mono); font-size: 10px; font-weight: 400; color: var(--steel); }
+  .cmp tbody td { padding: 14px 16px; border: 1px solid var(--hairline); font-size: 13px; line-height: 1.65; vertical-align: top; }
+  .cmp tbody td.dim {
+    font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--steel); background: var(--surface-soft); white-space: nowrap;
+  }
+  .cmp tbody tr:nth-child(even) td:not(.dim) { background: var(--surface-soft); }
+  .verdict { margin-top: 24px; padding: 16px 20px; background: var(--surface); border-radius: var(--r-md); }
+  .verdict .kp-label { color: var(--slate); }
+  .verdict p { margin-top: 8px; font-size: 14px; line-height: 1.7; }
+
+  .icon { width: 16px; height: 16px; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- ══ Sidebar ══ -->
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="brand-mark">lr</span>
+      <span class="brand-name">litereview</span>
+    </div>
+
+    <button class="nav-item" data-view="search" onclick="go('search', this)">
+      <svg class="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="m13.5 13.5-3.2-3.2" stroke-linecap="round"/></svg>
+      搜尋文獻
+    </button>
+
+    <div class="group">
+      <div class="group-head">
+        <svg class="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.5 3.5h11v9h-11z"/><path d="M2.5 6.5h11" /></svg>
+        工作區 <span class="count">6</span>
+      </div>
+      <button class="paper-item active-item" onclick="go('keypoints', this)">
+        <span class="dot dot-done" title="已分析"></span>
+        <span class="paper-title">Attention Is All You Need</span>
+      </button>
+      <button class="paper-item" onclick="go('keypoints', this)">
+        <span class="dot dot-done" title="已分析"></span>
+        <span class="paper-title">BERT: Pre-training of Deep Bidirectional…</span>
+      </button>
+      <button class="paper-item" onclick="go('keypoints', this)">
+        <span class="dot dot-done" title="已分析"></span>
+        <span class="paper-title">An Image is Worth 16×16 Words (ViT)</span>
+      </button>
+      <button class="paper-item" onclick="go('keypoints', this)">
+        <span class="dot dot-running" title="分析中"></span>
+        <span class="paper-title">Deep Residual Learning for Image Recog…</span>
+      </button>
+      <button class="paper-item" onclick="go('keypoints', this)">
+        <span class="dot dot-abstract" title="僅摘要"></span>
+        <span class="paper-title">NeRF: Representing Scenes as Neural…</span>
+      </button>
+      <button class="paper-item" onclick="go('keypoints', this)">
+        <span class="dot dot-none" title="未分析"></span>
+        <span class="paper-title">Language Models are Few-Shot Learners</span>
+      </button>
+      <button class="nav-item" style="margin-top:2px; color: var(--slate); font-weight: 400; font-size: 13px;" onclick="go('workspace', this)">
+        全部論文 →
+      </button>
+    </div>
+
+    <div class="group">
+      <div class="group-head">
+        <svg class="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2.5v11M8 2.5v11M13 2.5v11" stroke-linecap="round"/></svg>
+        比較 <span class="count">2</span>
+      </div>
+      <button class="history-item" onclick="go('compare', this)">
+        <span class="history-title">Transformer / BERT / ViT</span>
+        <span class="history-meta">3 篇 · 07-01</span>
+      </button>
+      <button class="history-item" onclick="go('compare', this)">
+        <span class="history-title">Attention / BERT</span>
+        <span class="history-meta">2 篇 · 06-28</span>
+      </button>
+    </div>
+
+    <div class="sidebar-foot">
+      <button class="upload-entry" onclick="go('workspace', this)">
+        <svg class="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 10.5v-7M5 6l3-3 3 3M3 13h10" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        上傳 PDF 加入工作區
+      </button>
+    </div>
+  </aside>
+
+  <!-- ══ Main ══ -->
+  <div class="main">
+    <div class="topbar">
+      <button class="icon-btn" title="收合側邊欄" onclick="document.body.classList.toggle('collapsed')">
+        <svg class="icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><path d="M5.5 2.5v11"/></svg>
+      </button>
+      <span class="crumb" id="crumb">工作區 / <b>Attention Is All You Need</b></span>
+    </div>
+
+    <div class="content">
+
+      <!-- ── 搜尋 ── -->
+      <section class="view" id="view-search">
+        <div class="col">
+          <h1 class="page">搜尋文獻</h1>
+          <p class="page-sub">輸入關鍵字、arXiv ID 或 DOI，多來源合併去重</p>
+          <div class="search-bar">
+            <input value="attention transformer" placeholder="transformer attention / 2301.12345 / 10.1145/…">
+            <button class="btn-primary">搜尋</button>
+          </div>
+          <p class="count-line">10 筆結果 · OpenAlex + Semantic Scholar + arXiv</p>
+          <div class="result-list">
+            <div class="result">
+              <div style="min-width:0; flex:1;">
+                <h3>Attention Is All You Need</h3>
+                <p class="meta">Vaswani, Shazeer, Parmar, Uszkoreit 等 · 2017 · NeurIPS</p>
+                <div class="signals"><span>arXiv:1706.03762</span><span>被引 173,204</span><span>h-index 512</span></div>
+                <p class="abs">The dominant sequence transduction models are based on complex recurrent or convolutional neural networks that include an encoder and a decoder. We propose a new simple network architecture, the Transformer…</p>
+              </div>
+              <div class="result-side"><button class="btn-secondary" disabled style="opacity:.45; cursor:default;">已加入</button></div>
+            </div>
+            <div class="result">
+              <div style="min-width:0; flex:1;">
+                <h3>Neural Machine Translation by Jointly Learning to Align and Translate</h3>
+                <p class="meta">Bahdanau, Cho, Bengio · 2015 · ICLR</p>
+                <div class="signals"><span>arXiv:1409.0473</span><span>被引 38,912</span></div>
+                <p class="abs">Neural machine translation is a recently proposed approach to machine translation. Unlike the traditional statistical machine translation…</p>
+              </div>
+              <div class="result-side"><button class="btn-secondary">加入工作區</button></div>
+            </div>
+            <div class="result" style="border-bottom:0;">
+              <div style="min-width:0; flex:1;">
+                <h3>Longformer: The Long-Document Transformer</h3>
+                <p class="meta">Beltagy, Peters, Cohan · 2020</p>
+                <div class="signals"><span>arXiv:2004.05150</span><span>被引 4,517</span></div>
+                <p class="abs">Transformer-based models are unable to process long sequences due to their self-attention operation, which scales quadratically with the sequence length…</p>
+              </div>
+              <div class="result-side"><button class="btn-secondary">加入工作區</button></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── 工作區 ── -->
+      <section class="view" id="view-workspace">
+        <div class="col">
+          <div class="ws-head">
+            <div>
+              <h1 class="page">工作區</h1>
+              <p class="page-sub">6 篇論文 · 勾選 2–6 篇可發起比較</p>
+            </div>
+            <button class="btn-secondary">
+              上傳 PDF
+            </button>
+          </div>
+          <div class="ws-list">
+            <div class="ws-row">
+              <input type="checkbox" checked onchange="updCmp()">
+              <div class="ws-body">
+                <div class="ws-title">Attention Is All You Need</div>
+                <div class="ws-meta"><span class="src">arXiv</span><span class="status s-done"><span class="dot dot-done"></span>已分析</span></div>
+              </div>
+              <div class="ws-actions"><button class="btn-secondary">查看重點</button><button class="btn-ghost">移除</button></div>
+            </div>
+            <div class="ws-row">
+              <input type="checkbox" checked onchange="updCmp()">
+              <div class="ws-body">
+                <div class="ws-title">BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding</div>
+                <div class="ws-meta"><span class="src">arXiv</span><span class="status s-done"><span class="dot dot-done"></span>已分析</span></div>
+              </div>
+              <div class="ws-actions"><button class="btn-secondary">查看重點</button><button class="btn-ghost">移除</button></div>
+            </div>
+            <div class="ws-row">
+              <input type="checkbox" onchange="updCmp()">
+              <div class="ws-body">
+                <div class="ws-title">An Image is Worth 16×16 Words: Transformers for Image Recognition at Scale</div>
+                <div class="ws-meta"><span class="src">arXiv</span><span class="status s-done"><span class="dot dot-done"></span>已分析</span></div>
+              </div>
+              <div class="ws-actions"><button class="btn-secondary">查看重點</button><button class="btn-ghost">移除</button></div>
+            </div>
+            <div class="ws-row">
+              <input type="checkbox" disabled title="分析完成後才能比較" onchange="updCmp()">
+              <div class="ws-body">
+                <div class="ws-title">Deep Residual Learning for Image Recognition</div>
+                <div class="ws-meta"><span class="src">arXiv</span><span class="status s-running"><span class="dot dot-running"></span>分析中…</span></div>
+              </div>
+              <div class="ws-actions"><button class="btn-ghost">移除</button></div>
+            </div>
+            <div class="ws-row">
+              <input type="checkbox" onchange="updCmp()">
+              <div class="ws-body">
+                <div class="ws-title">NeRF: Representing Scenes as Neural Radiance Fields for View Synthesis</div>
+                <div class="ws-meta"><span class="src">OpenAlex</span><span class="status s-abstract"><span class="dot dot-abstract"></span>僅摘要</span></div>
+              </div>
+              <div class="ws-actions"><button class="btn-secondary">查看重點</button><button class="btn-ghost">移除</button></div>
+            </div>
+            <div class="ws-row" style="border-bottom:0;">
+              <input type="checkbox" disabled title="尚未分析" onchange="updCmp()">
+              <div class="ws-body">
+                <div class="ws-title">Language Models are Few-Shot Learners</div>
+                <div class="ws-meta"><span class="src">已上傳 PDF</span><span class="status s-none"><span class="dot dot-none"></span>未分析</span></div>
+              </div>
+              <div class="ws-actions"><button class="btn-secondary">找重點</button><button class="btn-ghost">移除</button></div>
+            </div>
+          </div>
+          <div class="compare-float on" id="cmpFloat">
+            <div class="inner">
+              <span id="cmpCount">已選 2 篇</span>
+              <button class="btn-primary" onclick="go('compare', null)">比較</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Keypoints 閱讀 ── -->
+      <section class="view on" id="view-keypoints">
+        <div class="col">
+          <h1 class="kp-title">Attention Is All You Need</h1>
+          <p class="kp-meta">Vaswani, Shazeer, Parmar, Uszkoreit 等 · 2017 · NeurIPS · arXiv:1706.03762 · 被引 173,204</p>
+          <div class="kp-toolbar">
+            <span class="src-chip">
+              <svg class="icon" style="width:12px;height:12px;" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 2.5h7l3 3v8H3z"/><path d="M10 2.5v3h3"/></svg>
+              arXiv 全文
+            </span>
+            <span style="font-family:var(--mono); font-size:11px; color:var(--steel);">分析於 2026-07-01 14:32</span>
+            <span style="flex:1;"></span>
+            <button class="btn-secondary">重新分析</button>
+          </div>
+
+          <div class="kp-fields">
+            <div class="kp-field">
+              <div class="kp-label">研究問題</div>
+              <p class="kp-value">序列轉導模型是否必須依賴遞迴或卷積結構？能否用純注意力機制構建更平行化、更高效的架構，同時達到更好的翻譯品質？</p>
+            </div>
+            <div class="kp-field">
+              <div class="kp-label">研究方法</div>
+              <p class="kp-value">提出 Transformer 架構：完全捨棄 RNN/CNN，以 scaled dot-product attention 與 multi-head attention 為核心，搭配位置編碼（sinusoidal positional encoding）、殘差連接與 layer normalization，構成 encoder-decoder 各 6 層的堆疊。</p>
+            </div>
+            <div class="kp-field">
+              <div class="kp-label">主要發現</div>
+              <p class="kp-value">在 WMT 2014 英德翻譯任務達到 28.4 BLEU（超越當時最佳結果 2 BLEU 以上），英法任務達 41.8 BLEU；訓練成本僅為既有最佳模型的一小部分（8 張 P100 訓練 3.5 天）。注意力機制的可視化顯示模型學到了語法與語意層次的結構。</p>
+            </div>
+            <div class="kp-field">
+              <div class="kp-label">資料與實驗</div>
+              <p class="kp-value">WMT 2014 English-German（450 萬句對）與 English-French（3,600 萬句對）；另在 Penn Treebank 英文成分句法剖析上驗證泛化能力。消融實驗系統性檢驗 head 數量、key 維度、dropout 與位置編碼的影響。</p>
+            </div>
+            <div class="kp-field">
+              <div class="kp-label">主要貢獻</div>
+              <p class="kp-value">① 首個完全基於注意力的序列轉導架構；② multi-head attention 的提出與系統性分析；③ 大幅降低訓練成本並提升平行化程度，成為後續 BERT、GPT 等預訓練模型的基礎架構。</p>
+            </div>
+            <div class="kp-field">
+              <div class="kp-label">侷限性</div>
+              <p class="kp-value">自注意力對序列長度的計算複雜度為 O(n²)，長序列處理成本高；位置編碼對超出訓練長度的外推能力有限；論文僅在翻譯與句法剖析驗證，其他模態的適用性當時尚未證實。</p>
+            </div>
+            <div class="kp-field">
+              <div class="kp-label">新穎度</div>
+              <p class="kp-value"><span class="nv">高</span> — 完全移除遞迴與卷積在當時是架構層級的範式轉移，而非漸進式改良；multi-head attention 與縮放點積注意力的組合此前未見。</p>
+            </div>
+            <div class="kp-field" style="border-bottom:0;">
+              <div class="kp-label">關鍵公式／演算法</div>
+              <div class="formula">Attention(Q, K, V) = softmax(QKᵀ / √d_k) V</div>
+              <div class="formula">MultiHead(Q, K, V) = Concat(head₁, …, head_h) W^O，其中 head_i = Attention(QW_i^Q, KW_i^K, VW_i^V)</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── 比較 ── -->
+      <section class="view" id="view-compare">
+        <div class="col col-wide">
+          <h1 class="page">比較結果</h1>
+          <p class="page-sub">3 篇 · 2026-07-01 · Transformer / BERT / ViT</p>
+          <div class="cmp-table-wrap">
+            <table class="cmp">
+              <thead>
+                <tr>
+                  <th class="dim-col"></th>
+                  <th>Attention Is All You Need<span class="th-meta">2017 · NeurIPS</span></th>
+                  <th>BERT: Pre-training of Deep Bidirectional Transformers<span class="th-meta">2019 · NAACL</span></th>
+                  <th>An Image is Worth 16×16 Words (ViT)<span class="th-meta">2021 · ICLR</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="dim">研究方法</td>
+                  <td>提出純注意力的 encoder-decoder 架構，以 multi-head attention 取代遞迴與卷積。</td>
+                  <td>取 Transformer encoder 堆疊，以 MLM + NSP 兩個自監督任務做雙向預訓練，再微調下游任務。</td>
+                  <td>將影像切成 16×16 patch 序列直接餵入標準 Transformer encoder，幾乎不引入影像特定的歸納偏置。</td>
+                </tr>
+                <tr>
+                  <td class="dim">資料與實驗</td>
+                  <td>WMT 2014 英德／英法翻譯 + Penn Treebank 句法剖析。</td>
+                  <td>BooksCorpus + English Wikipedia 預訓練；GLUE、SQuAD、SWAG 等 11 項 NLP 任務微調。</td>
+                  <td>JFT-300M / ImageNet-21k 預訓練；ImageNet、CIFAR、VTAB 等影像分類基準遷移。</td>
+                </tr>
+                <tr>
+                  <td class="dim">主要貢獻</td>
+                  <td>架構本身：後續所有 Transformer 系工作的共同基礎。</td>
+                  <td>確立「預訓練 + 微調」為 NLP 標準範式，雙向上下文表示帶來 11 項任務 SOTA。</td>
+                  <td>證明大規模資料下純 Transformer 可勝過 CNN，開啟視覺 Transformer 研究路線。</td>
+                </tr>
+                <tr>
+                  <td class="dim">侷限性</td>
+                  <td>O(n²) 序列長度複雜度；僅驗證於翻譯任務。</td>
+                  <td>預訓練成本高；MLM 的 [MASK] token 造成預訓練—微調不一致；不適合生成任務。</td>
+                  <td>中小規模資料下不如 CNN（缺歸納偏置）；預訓練依賴 JFT-300M 等私有資料集。</td>
+                </tr>
+                <tr>
+                  <td class="dim">新穎度</td>
+                  <td>高 — 架構範式轉移的原點。</td>
+                  <td>中高 — 架構沿用既有 encoder，創新在預訓練目標與遷移範式。</td>
+                  <td>中高 — 架構幾乎不變，創新在「最小改動跨模態」的實證與規模化結論。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="verdict">
+            <div class="kp-label">綜合結論</div>
+            <p>三篇構成一條清晰的譜系：Transformer（2017）提供架構原型，BERT（2019）證明該架構在大規模自監督預訓練下的遷移能力並確立 NLP 範式，ViT（2021）再把同一架構以最小改動推廣到視覺。方法上的共同侷限是對大規模資料與算力的依賴——BERT 與 ViT 的成功都以巨量預訓練語料／影像為前提。若研究關注架構創新，Transformer 原文仍是必讀根源；若關注遷移學習範式，BERT 的實驗設計更具參考價值；ViT 則是評估「架構通用性 vs. 領域歸納偏置」取捨的最佳案例。</p>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</div>
+
+<script>
+  const crumbs = {
+    search: "搜尋文獻",
+    workspace: "工作區",
+    keypoints: "工作區 / <b>Attention Is All You Need</b>",
+    compare: "比較 / <b>Transformer / BERT / ViT</b>",
+  };
+  function go(view, el) {
+    document.querySelectorAll(".view").forEach(v => v.classList.remove("on"));
+    document.getElementById("view-" + view).classList.add("on");
+    document.getElementById("crumb").innerHTML = crumbs[view];
+    document.querySelectorAll(".sidebar .active-item").forEach(a => a.classList.remove("active-item"));
+    if (el && (el.classList.contains("paper-item") || el.classList.contains("history-item") || el.classList.contains("nav-item"))) {
+      el.classList.add("active-item");
+    }
+    document.querySelector(".content").scrollTop = 0;
+  }
+  function updCmp() {
+    const n = document.querySelectorAll("#view-workspace input[type=checkbox]:checked").length;
+    const f = document.getElementById("cmpFloat");
+    document.getElementById("cmpCount").textContent = "已選 " + n + " 篇";
+    f.classList.toggle("on", n >= 2);
+  }
+</script>
+</body>
+</html>

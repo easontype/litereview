@@ -73,6 +73,7 @@ export interface WorkspaceItem {
   doi: string | null;
   addedAt: string;
   hasKeypoints: boolean;
+  fulltextSource: string | null;
 }
 
 /** 論文的去重鍵：優先用 arXiv ID，其次 DOI，最後標題（與 Phase 1 搜尋結果去重邏輯一致）。 */
@@ -138,7 +139,7 @@ export function listWorkspace(): WorkspaceItem[] {
   const rows = db
     .prepare(
       `SELECT p.id as id, p.title as title, p.source as source, p.arxiv_id as arxivId, p.doi as doi,
-              w.added_at as addedAt, (k.paper_id IS NOT NULL) as hasKeypoints
+              w.added_at as addedAt, (k.paper_id IS NOT NULL) as hasKeypoints, k.fulltext_source as fulltextSource
        FROM workspace_items w
        JOIN papers p ON p.id = w.paper_id
        LEFT JOIN keypoints k ON k.paper_id = p.id
@@ -232,6 +233,43 @@ export function saveKeypoints(paperId: string, fulltextSource: string, data: Key
     rawJson: JSON.stringify(data),
     analyzedAt: new Date().toISOString(),
   });
+}
+
+export interface ComparisonListItem {
+  id: string;
+  paperIds: string[];
+  titles: string[];
+  createdAt: string;
+}
+
+export function listComparisons(): ComparisonListItem[] {
+  const rows = db
+    .prepare(`SELECT id, paper_ids, created_at FROM comparisons ORDER BY created_at DESC`)
+    .all() as Array<{ id: string; paper_ids: string; created_at: string }>;
+  const titleStmt = db.prepare(`SELECT title FROM papers WHERE id = ?`);
+  return rows.map((r) => {
+    const paperIds = JSON.parse(r.paper_ids) as string[];
+    const titles = paperIds.map((pid) => (titleStmt.get(pid) as { title: string } | undefined)?.title ?? pid);
+    return { id: r.id, paperIds, titles, createdAt: r.created_at };
+  });
+}
+
+export interface ComparisonRow extends CompareData {
+  id: string;
+  paperIds: string[];
+  titles: string[];
+  createdAt: string;
+}
+
+export function getComparison(id: string): ComparisonRow | undefined {
+  const row = db
+    .prepare(`SELECT id, paper_ids, result_json, created_at FROM comparisons WHERE id = ?`)
+    .get(id) as { id: string; paper_ids: string; result_json: string; created_at: string } | undefined;
+  if (!row) return undefined;
+  const paperIds = JSON.parse(row.paper_ids) as string[];
+  const titleStmt = db.prepare(`SELECT title FROM papers WHERE id = ?`);
+  const titles = paperIds.map((pid) => (titleStmt.get(pid) as { title: string } | undefined)?.title ?? pid);
+  return { id: row.id, paperIds, titles, createdAt: row.created_at, ...(JSON.parse(row.result_json) as CompareData) };
 }
 
 export function saveComparison(paperIds: string[], result: CompareData): string {

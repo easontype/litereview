@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 interface WorkspaceItem {
   id: string;
@@ -13,6 +14,8 @@ type CompareArrayField = "methodology" | "data_experiments" | "contributions" | 
 interface CompareResult {
   id: string;
   paperIds: string[];
+  titles?: string[];
+  createdAt?: string;
   methodology: string[];
   data_experiments: string[];
   contributions: string[];
@@ -30,17 +33,74 @@ const ROWS: { key: CompareArrayField; label: string }[] = [
 ];
 
 export default function ComparePage() {
+  return (
+    <Suspense fallback={null}>
+      <CompareInner />
+    </Suspense>
+  );
+}
+
+function CompareInner() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const historyId = searchParams.get("id");
+  const presetIds = searchParams.get("ids");
+
   const [items, setItems] = useState<WorkspaceItem[] | null>(null);
-  const [selected, setSelected] = useState<string[]>([]);
-  const [status, setStatus] = useState<"idle" | "comparing" | "done" | "failed">("idle");
+  const [selected, setSelected] = useState<string[]>(() =>
+    presetIds ? presetIds.split(",").filter(Boolean).slice(0, 6) : []
+  );
+  const [status, setStatus] = useState<"idle" | "loading" | "comparing" | "done" | "failed">(() =>
+    historyId ? "loading" : "idle"
+  );
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<CompareResult | null>(null);
+
+  // searchParams 變化時在 render 期間同步調整狀態（React 官方建議模式，避免 effect 內 setState）
+  const [prevQuery, setPrevQuery] = useState({ historyId, presetIds });
+  if (prevQuery.historyId !== historyId || prevQuery.presetIds !== presetIds) {
+    setPrevQuery({ historyId, presetIds });
+    if (presetIds) setSelected(presetIds.split(",").filter(Boolean).slice(0, 6));
+    if (historyId) {
+      setStatus("loading");
+      setError(null);
+    } else {
+      setResult(null);
+      if (status === "done" || status === "loading") setStatus("idle");
+    }
+  }
 
   useEffect(() => {
     fetch("/api/workspace/papers")
       .then((res) => res.json())
       .then((json) => setItems(json.items));
   }, []);
+
+  // ?id=xxx：載入歷史比較
+  useEffect(() => {
+    if (!historyId) return;
+    let ignore = false;
+    fetch(`/api/compare/${historyId}`)
+      .then((res) => res.json())
+      .then((json) => {
+        if (ignore) return;
+        if (json.error) {
+          setError(json.error);
+          setStatus("failed");
+        } else {
+          setResult(json);
+          setStatus("done");
+        }
+      })
+      .catch((err) => {
+        if (ignore) return;
+        setError(err instanceof Error ? err.message : "載入失敗");
+        setStatus("failed");
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [historyId]);
 
   function toggle(id: string) {
     setSelected((prev) => {
@@ -67,6 +127,8 @@ export default function ComparePage() {
       }
       setResult(json);
       setStatus("done");
+      window.dispatchEvent(new Event("lr:refresh"));
+      router.replace(`/compare?id=${json.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "比較失敗");
       setStatus("failed");
@@ -76,31 +138,97 @@ export default function ComparePage() {
   const analyzedItems = items?.filter((item) => item.hasKeypoints) ?? [];
   const titleById = new Map((items ?? []).map((item) => [item.id, item.title]));
 
+  function paperTitle(result: CompareResult, index: number): string {
+    return result.titles?.[index] ?? titleById.get(result.paperIds[index]) ?? result.paperIds[index];
+  }
+
+  // ── 結果檢視（歷史或剛跑完） ──
+  if ((status === "done" || status === "loading") && (result || status === "loading")) {
+    return (
+      <div className="mx-auto w-full max-w-[960px] px-8 pb-24 pt-10">
+        <h1 className="font-serif text-[30px] font-bold leading-[1.25] tracking-[-0.3px]">比較結果</h1>
+        {status === "loading" && <p className="mt-8 text-sm text-steel">載入中…</p>}
+        {result && (
+          <>
+            <p className="mt-1.5 text-sm text-slate">
+              {result.paperIds.length} 篇{result.createdAt ? ` · ${result.createdAt.slice(0, 10)}` : ""}
+            </p>
+
+            <div className="mt-7 overflow-x-auto">
+              <table className="w-full min-w-[720px] border-collapse text-sm">
+                <thead>
+                  <tr>
+                    <th className="w-24 border border-hairline bg-surface" />
+                    {result.paperIds.map((id, i) => (
+                      <th
+                        key={id}
+                        className="border border-hairline bg-surface px-4 py-3 text-left align-top font-serif text-sm font-semibold leading-[1.35]"
+                      >
+                        {paperTitle(result, i)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {ROWS.map((row, rowIndex) => (
+                    <tr key={row.key}>
+                      <td className="whitespace-nowrap border border-hairline bg-surface-soft px-4 py-3.5 align-top font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-steel">
+                        {row.label}
+                      </td>
+                      {result[row.key].map((cell, i) => (
+                        <td
+                          key={i}
+                          className={`border border-hairline px-4 py-3.5 align-top text-[13px] leading-[1.65] ${
+                            rowIndex % 2 === 1 ? "bg-surface-soft" : ""
+                          }`}
+                        >
+                          {cell}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-6 rounded-md bg-surface px-5 py-4">
+              <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-slate">
+                綜合結論
+              </p>
+              <p className="mt-2 text-sm leading-[1.7]">{result.verdict}</p>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  }
+
+  // ── 選擇檢視 ──
   return (
-    <div className="mx-auto w-full max-w-4xl px-4 pb-24 pt-10">
-      <h1 className="text-[32px] font-extrabold leading-[1.1] tracking-tight">比較</h1>
-      <p className="mt-1.5 text-sm leading-[1.55] text-foreground/55">
-        勾選 2–6 篇已完成「找重點」的論文進行比較。
-      </p>
+    <div className="mx-auto w-full max-w-[720px] px-8 pb-24 pt-10">
+      <h1 className="font-serif text-[30px] font-bold leading-[1.25] tracking-[-0.3px]">比較</h1>
+      <p className="mt-1.5 text-sm text-slate">勾選 2–6 篇已完成「找重點」的論文進行比較。</p>
 
       {items && analyzedItems.length === 0 && (
-        <p className="mt-8 text-sm leading-[1.7] text-foreground/45">
-          尚未有已分析的論文，先到工作區對論文按「找重點」。
-        </p>
+        <p className="mt-8 text-sm text-steel">尚未有已分析的論文，先到工作區對論文按「找重點」。</p>
       )}
 
       {analyzedItems.length > 0 && (
-        <ul className="mt-8 divide-y divide-black/10 border-t border-black/10 dark:divide-white/10 dark:border-white/10">
+        <ul className="mt-7 divide-y divide-hairline border-t border-hairline">
           {analyzedItems.map((item) => (
-            <li key={item.id} className="flex items-center gap-3 py-4">
-              <input
-                type="checkbox"
-                checked={selected.includes(item.id)}
-                onChange={() => toggle(item.id)}
-                disabled={!selected.includes(item.id) && selected.length >= 6}
-                className="h-4 w-4"
-              />
-              <span className="font-serif text-sm text-foreground">{item.title || "（無標題）"}</span>
+            <li key={item.id}>
+              <label className="flex cursor-pointer items-center gap-3 py-3.5">
+                <input
+                  type="checkbox"
+                  checked={selected.includes(item.id)}
+                  onChange={() => toggle(item.id)}
+                  disabled={!selected.includes(item.id) && selected.length >= 6}
+                  className="h-[15px] w-[15px] shrink-0 accent-primary"
+                />
+                <span className="font-serif text-[15px] font-semibold leading-[1.35]">
+                  {item.title || "（無標題）"}
+                </span>
+              </label>
             </li>
           ))}
         </ul>
@@ -112,56 +240,18 @@ export default function ComparePage() {
             type="button"
             onClick={runCompare}
             disabled={selected.length < 2 || selected.length > 6 || status === "comparing"}
-            className="h-9 border border-black/15 px-4 text-xs font-medium transition-colors hover:border-foreground/40 disabled:opacity-40 disabled:hover:border-black/15 dark:border-white/15"
+            className="rounded-sm bg-primary px-5 py-2 text-sm font-medium text-on-primary transition-colors hover:bg-primary-pressed disabled:cursor-not-allowed disabled:bg-hairline disabled:text-steel"
           >
             {status === "comparing" ? "比較中…" : "比較"}
           </button>
-          <span className="text-xs text-foreground/45">已選 {selected.length} / 6 篇（最少 2 篇）</span>
+          <span className="text-xs text-steel">
+            已選 {selected.length} / 6 篇（最少 2 篇）
+            {status === "comparing" && " · 未分析的論文會先自動跑「找重點」，需要幾分鐘"}
+          </span>
         </div>
       )}
 
-      {status === "failed" && <p className="mt-6 text-sm text-red-600">比較失敗：{error}</p>}
-
-      {status === "done" && result && (
-        <div className="mt-10">
-          <div className="overflow-x-auto border-t border-black/10 dark:border-white/10">
-            <table className="w-full min-w-[640px] border-collapse text-sm">
-              <thead>
-                <tr>
-                  <th className="w-32 py-3 pr-4"></th>
-                  {result.paperIds.map((id) => (
-                    <th
-                      key={id}
-                      className="border-b border-black/10 px-4 py-3 text-left font-serif text-sm font-semibold leading-[1.3] dark:border-white/10"
-                    >
-                      {titleById.get(id) ?? id}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {ROWS.map((row) => (
-                  <tr key={row.key} className="border-b border-black/10 dark:border-white/10">
-                    <td className="py-4 pr-4 align-top font-mono text-[10px] font-semibold uppercase tracking-wide text-foreground/40">
-                      {row.label}
-                    </td>
-                    {result[row.key].map((cell, i) => (
-                      <td key={i} className="px-4 py-4 align-top text-sm leading-[1.7] text-foreground/85">
-                        {cell}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="mt-6 border border-black/15 bg-black/[0.02] px-4 py-3 dark:border-white/15 dark:bg-white/[0.03]">
-            <p className="font-mono text-[10px] font-semibold uppercase tracking-wide text-foreground/40">綜合結論</p>
-            <p className="mt-1.5 text-sm leading-[1.7] text-foreground/85">{result.verdict}</p>
-          </div>
-        </div>
-      )}
+      {status === "failed" && <p className="mt-6 text-sm text-error">比較失敗：{error}</p>}
     </div>
   );
 }
