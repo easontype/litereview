@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Command } from "cmdk";
 import {
-  MagnifyingGlass,
   Books,
   Columns,
   Scales,
@@ -15,6 +14,7 @@ import {
   SidebarSimple,
   Sparkle,
   ArrowRight,
+  FilePdf,
 } from "@phosphor-icons/react";
 
 interface PaletteItemPaper {
@@ -31,8 +31,8 @@ interface JournalHit {
 
 const NAV: Array<{ href: string; label: string; keywords: string; Icon: typeof Books }> = [
   { href: "/dashboard", label: "儀表板", keywords: "dashboard home 首頁", Icon: SquaresFour },
-  { href: "/search", label: "搜尋文獻", keywords: "search 搜尋", Icon: MagnifyingGlass },
   { href: "/workspace", label: "工作區", keywords: "workspace papers 論文", Icon: Books },
+  { href: "/pdfs", label: "PDF 閱覽", keywords: "pdf viewer 閱覽", Icon: FilePdf },
   { href: "/compare", label: "比較", keywords: "compare 比較", Icon: Columns },
   { href: "/debate", label: "辯論", keywords: "debate 辯論", Icon: Scales },
   { href: "/journals", label: "期刊分級", keywords: "journals ranking sjr core 期刊", Icon: Medal },

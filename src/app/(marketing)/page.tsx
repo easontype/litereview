@@ -315,8 +315,8 @@ export default function LandingPage() {
                 。
               </h1>
               <p className="hero-sub hero-enter d3">
-                <span className="emph">搜尋、找重點、比較、辯論</span>——文獻研究一氣呵成。
-                三大學術資料庫、九欄位深度重點、五維比較表， 還能讓
+                <span className="emph">匯入、找重點、比較、辯論</span>——文獻研究一氣呵成。
+                Zotero 一鍵匯入、九欄位深度重點、五維比較表， 還能讓
                 <strong>多個模型針對爭點攻防</strong>，裁判給出判決。 全部在你自己的電腦上完成。
               </p>
               <div className="hero-ctas hero-enter d4">
@@ -402,46 +402,45 @@ export default function LandingPage() {
       </div>
 
       <main id="features">
-        {/* ═══ F1 搜尋 ═══ */}
+        {/* ═══ F1 匯入 ═══ */}
         <section className="block">
           <div className="wrap">
             <div className="feature-grid">
               <div className="f-copy reveal">
                 <div className="ghost-no">01</div>
-                <div className="eyebrow">01 · 檢索 SEARCH</div>
+                <div className="eyebrow">01 · 匯入 IMPORT</div>
                 <h2>
-                  三個資料庫，
+                  你的文獻庫，
                   <br />
-                  一次搜完。
+                  一鍵搬進來。
                 </h2>
                 <p className="lede">
-                  關鍵字、arXiv ID、DOI 都行。litereview 同時查
-                  <strong>OpenAlex、Semantic Scholar、arXiv</strong> 並自動去重，
-                  你不必再開三個分頁交叉核對。
+                  從 <strong>Zotero</strong> 挑選匯入、或直接上傳 PDF——
+                  litereview 不重做搜尋引擎，專心把你已經找到的論文
+                  <strong>讀深、讀透</strong>。
                 </p>
                 <ul className="f-points">
                   <li>
-                    <strong>引用數與品質信號</strong>直接附在結果上
+                    <strong>Zotero 本機匯入</strong>：勾選即加入工作區，分析筆記還能回寫
                   </li>
                   <li>
                     <strong>期刊分級徽章</strong>：SJR Q1–Q4、CORE A*–C，一眼判斷值不值得讀
                   </li>
                   <li>
-                    也可從 <strong>Zotero</strong> 匯入、或直接上傳 PDF
+                    <strong>上傳 PDF</strong>：地端轉換全文，不用雲端 API
                   </li>
                 </ul>
               </div>
               <div className="f-visual reveal dly1">
                 <div className="frame">
-                  <div className="frame-cap">Search — 合併三來源</div>
+                  <div className="frame-cap">Import — Zotero / PDF</div>
                   <div className="s-input">
-                    attention is all you need<span className="caret" />
+                    mechanochemical-synthesis.pdf<span className="caret" />
                   </div>
                   <div className="s-sources">
-                    <span className="s-src">OpenAlex 12</span>
-                    <span className="s-src">Semantic Scholar 9</span>
-                    <span className="s-src">arXiv 4</span>
-                    <span className="s-merge">→ 去重後 18 篇</span>
+                    <span className="s-src">Zotero 12</span>
+                    <span className="s-src">上傳 PDF 3</span>
+                    <span className="s-merge">→ 工作區 15 篇</span>
                   </div>
                   <div className="stagger">
                     <div className="s-row">
@@ -700,13 +699,13 @@ export default function LandingPage() {
           <div className="wrap">
             <div className="reveal">
               <div className="eyebrow">HOW IT WORKS</div>
-              <h2>從一個關鍵字，到一場判決。</h2>
+              <h2>從一篇論文，到一場判決。</h2>
             </div>
             <div className="flow-track reveal">
               <div className="step">
                 <span className="no">01</span>
-                <h3>搜尋或匯入</h3>
-                <p>關鍵字／DOI／arXiv ID，或從 Zotero、PDF 匯入工作區。</p>
+                <h3>匯入論文</h3>
+                <p>從 Zotero 一鍵匯入，或直接上傳 PDF 進工作區。</p>
               </div>
               <div className="step">
                 <span className="no">02</span>
@@ -766,7 +765,7 @@ export default function LandingPage() {
                 <span className="glyph">源</span>
                 <h3>MIT 開源</h3>
                 <p>
-                  整套原始碼公開在 GitHub，MIT 授權。搜尋邏輯、prompt、辯論引擎全部攤在陽光下——
+                  整套原始碼公開在 GitHub，MIT 授權。prompt、分析管線、辯論引擎全部攤在陽光下——
                   你可以審計它，也可以改造它。
                 </p>
               </div>

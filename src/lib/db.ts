@@ -3,7 +3,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { createHash } from "node:crypto";
 import type { PaperResult } from "./scholarly/types";
-import type { KeypointsData } from "./keypoints/parse";
+import type { KeypointsData, EvidenceItem } from "./keypoints/parse";
 import type { CompareData } from "./compare/parse";
 import type { ReviewData } from "./review/parse";
 import type { DebateTurn, DebateVerdict } from "./debate/parse";
@@ -86,6 +86,14 @@ export function ensureSchema() {
       created_at TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS fulltexts (
+      paper_id TEXT PRIMARY KEY REFERENCES papers(id),
+      source TEXT,
+      text TEXT,
+      page_count INTEGER,
+      created_at TEXT
+    );
+
     CREATE TABLE IF NOT EXISTS journal_ranks (
       issn TEXT,
       title TEXT,
@@ -114,6 +122,30 @@ function ensureColumn(table: string, column: string, ddl: string) {
 }
 
 ensureSchema();
+
+export interface FulltextRow {
+  source: string;
+  text: string;
+  pageCount: number | null;
+}
+
+/** 分析時存下的全文快取（含頁碼標記），供審查重用與之後的出處比對。 */
+export function getFulltextRow(paperId: string): FulltextRow | null {
+  const row = db
+    .prepare("SELECT source, text, page_count FROM fulltexts WHERE paper_id = ?")
+    .get(paperId) as { source: string; text: string; page_count: number | null } | undefined;
+  return row ? { source: row.source, text: row.text, pageCount: row.page_count } : null;
+}
+
+export function saveFulltextRow(paperId: string, source: string, text: string, pageCount: number | null) {
+  db.prepare(
+    `INSERT INTO fulltexts (paper_id, source, text, page_count, created_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(paper_id) DO UPDATE SET
+       source = excluded.source, text = excluded.text,
+       page_count = excluded.page_count, created_at = excluded.created_at`
+  ).run(paperId, source, text, pageCount, new Date().toISOString());
+}
 
 export function getSetting(key: string): string | null {
   const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(key) as
@@ -275,6 +307,8 @@ export interface KeypointsRow {
   noveltyRating: string;
   noveltyReason: string;
   keyFormulasOrAlgorithms: string[];
+  /** v1.5 起才有；舊分析結果為 undefined，UI 顯示「重新分析以取得出處」。 */
+  evidence?: Record<string, EvidenceItem[]>;
   analyzedAt: string;
 }
 
@@ -296,6 +330,8 @@ export function getKeypoints(paperId: string): KeypointsRow | undefined {
     noveltyRating: data.novelty_rating,
     noveltyReason: data.novelty_reason,
     keyFormulasOrAlgorithms: data.key_formulas_or_algorithms ?? [],
+    // 映射時明確帶上，否則 API 會默默丟掉 evidence
+    ...(data.evidence ? { evidence: data.evidence } : {}),
     analyzedAt: row.analyzed_at,
   };
 }

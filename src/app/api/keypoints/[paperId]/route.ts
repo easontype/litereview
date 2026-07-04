@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPaper, getKeypoints, saveKeypoints } from "@/lib/db";
-import { getFullText } from "@/lib/fulltext";
-import { getUploadedPdf } from "@/lib/fulltext/upload-store";
+import { getFullTextCached } from "@/lib/fulltext/store";
 import { buildKeypointsPrompt } from "@/lib/keypoints/prompt";
 import { parseKeypointsResponse } from "@/lib/keypoints/parse";
 import { resolveSeat } from "@/lib/llm/registry";
@@ -37,14 +36,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pap
     return NextResponse.json({ status: "done", keypoints: existing });
   }
 
-  // 這次請求沒帶檔案的話，退回找使用者先前透過「上傳論文」存在本機的 PDF（避免要求重複上傳）。
-  const fullTextBuffer = uploadBuffer ?? getUploadedPdf(paperId);
-
   let stage: "fetching_fulltext" | "analyzing" = "fetching_fulltext";
   try {
-    const fullText = await getFullText(
+    // 沒帶檔案時 getFullTextCached 會自動退回本機已存的上傳 PDF 或 fulltexts 快取。
+    const fullText = await getFullTextCached(
+      paperId,
       { arxivId: paper.arxivId, doi: paper.doi, pdfUrl: paper.pdfUrl, abstract: paper.abstract },
-      fullTextBuffer
+      uploadBuffer,
+      { refresh: forceRefresh }
     );
     if (fullText.source === "abstract_only" && !fullText.text.trim()) {
       throw new Error("找不到可分析的內容：PDF 抽不出文字（可能是掃描影像檔），且沒有摘要可退回；可在設定頁掛外部 PDF 轉換工具再試");

@@ -146,6 +146,8 @@ function ingestSjr(db, text) {
   const year = new Date().getFullYear();
   let count = 0;
   const insertAll = db.transaction(() => {
+    // 只覆蓋 SJR 自己的列;CORE 列(core_rank NOT NULL)不動
+    db.prepare("DELETE FROM journal_ranks WHERE sjr_quartile IS NOT NULL").run();
     for (const row of rows.slice(1)) {
       const title = row[iTitle]?.trim();
       const quartile = row[iQuartile]?.trim();
@@ -183,6 +185,8 @@ function ingestCore(db, text) {
   const year = 2023;
   let count = 0;
   const insertAll = db.transaction(() => {
+    // 只覆蓋 CORE 自己的列;SJR 列(sjr_quartile NOT NULL)不動
+    db.prepare("DELETE FROM journal_ranks WHERE core_rank IS NOT NULL").run();
     for (const row of rows) {
       const [, title, acronym, , rank] = row.map((f) => (f ?? "").trim());
       if (!title || !valid.has(rank)) continue;
@@ -217,17 +221,28 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_journal_ranks_title_norm ON journal_ranks(title_norm);
 `);
 
-db.prepare("DELETE FROM journal_ranks").run();
-let total = 0;
-if (sjrText) {
-  const n = ingestSjr(db, sjrText);
-  console.log(`SJR：匯入 ${n} 筆`);
-  total += n;
-}
-if (coreText) {
-  const n = ingestCore(db, coreText);
-  console.log(`CORE：匯入 ${n} 筆`);
-  total += n;
-}
+const results = [
+  { label: "SJR 期刊分級", text: sjrText, ingest: ingestSjr },
+  { label: "CORE 會議分級", text: coreText, ingest: ingestCore },
+].map(({ label, text, ingest }) => {
+  if (!text) return { label, ok: false, n: 0, reason: "下載失敗（該來源既有資料保留未動）" };
+  try {
+    const n = ingest(db, text);
+    return { label, ok: n > 0, n, reason: n === 0 ? "匯入 0 筆，來源格式可能已變" : null };
+  } catch (err) {
+    return { label, ok: false, n: 0, reason: err.message };
+  }
+});
+const total = db.prepare("SELECT COUNT(*) AS c FROM journal_ranks").get().c;
 db.close();
-console.log(`完成，journal_ranks 共 ${total} 筆。搜尋/工作區的分級徽章即會顯示。`);
+
+console.log("");
+for (const r of results) {
+  if (r.ok) console.log(`✓ ${r.label}：匯入 ${r.n} 筆`);
+  else console.error(`⚠ ${r.label}：${r.reason}`);
+}
+console.log(`journal_ranks 目前共 ${total} 筆。搜尋/工作區的分級徽章即會顯示。`);
+if (results.some((r) => !r.ok)) {
+  console.error("有資料來源未成功匯入——分級資料不完整，請依上方訊息救援後重跑。");
+  process.exit(1);
+}

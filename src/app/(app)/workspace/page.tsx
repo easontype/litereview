@@ -172,7 +172,7 @@ export default function WorkspacePage() {
       </div>
 
       {items && items.length === 0 && (
-        <p className="mt-8 text-sm text-steel">尚未加入任何論文，先到搜尋頁挑幾篇。</p>
+        <p className="mt-8 text-sm text-steel">尚未加入任何論文——上傳 PDF 或用側欄的 Zotero 匯入。</p>
       )}
 
       {items && items.length > 0 && (

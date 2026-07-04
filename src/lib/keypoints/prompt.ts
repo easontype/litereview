@@ -1,3 +1,5 @@
+import { hasPageMarkers } from "@/lib/fulltext";
+
 export function buildKeypointsPrompt(
   paper: { title: string; abstract: string },
   fullText: string,
@@ -6,6 +8,31 @@ export function buildKeypointsPrompt(
   const scopeNote = isAbstractOnly
     ? "注意：以下只有論文標題與摘要，沒有全文，請盡力根據摘要推論，若資訊不足請誠實填寫「摘要未提供足夠資訊」。"
     : "以下是論文全文（或主要內容）。";
+
+  const sliced = fullText.slice(0, 60000);
+  const withMarkers = !isAbstractOnly && hasPageMarkers(sliced);
+
+  const evidenceField = isAbstractOnly
+    ? ""
+    : `,
+  "evidence": {
+    "research_question": [{ "quote": "從全文原樣逐字抄錄、支持該欄位結論的一段話（200 字以內）", "page": ${withMarkers ? "所在頁碼" : "null"} }],
+    "methodology": [], "key_findings": [], "data_experiments": [],
+    "contributions": [], "limitations": [], "novelty_reason": []
+  }`;
+
+  const evidenceRules = isAbstractOnly
+    ? ""
+    : `
+
+evidence 規則：
+- 上列 7 個欄位各給 1–3 條出處；quote 必須逐字出自全文，不可改寫或翻譯。
+- ${
+        withMarkers
+          ? "page 填 quote 所在段落前方最近的「【第 N 頁】」標記中的 N（整數）；quote 本身不得包含頁碼標記。"
+          : "全文沒有頁碼標記，page 一律填 null。"
+      }
+- 其他欄位的內容不要出現「【第 N 頁】」字樣。`;
 
   return `你是一位嚴謹的學術論文分析助理。請閱讀以下論文內容，並輸出結構化重點分析。
 
@@ -16,7 +43,7 @@ ${scopeNote}
 
 全文內容：
 """
-${fullText.slice(0, 60000)}
+${sliced}
 """
 
 請只輸出一個 JSON 物件（不要加任何說明文字，也不要用 markdown code fence 包住），欄位如下，除了 novelty_rating 外全部使用繁體中文：
@@ -30,6 +57,6 @@ ${fullText.slice(0, 60000)}
   "limitations": "侷限性與未來工作方向",
   "novelty_rating": "High 或 Medium 或 Low",
   "novelty_reason": "評定新穎度的理由",
-  "key_formulas_or_algorithms": ["關鍵公式或演算法（字串陣列，沒有就回傳空陣列）"]
-}`;
+  "key_formulas_or_algorithms": ["關鍵公式或演算法（字串陣列，沒有就回傳空陣列）"]${evidenceField}
+}${evidenceRules}`;
 }

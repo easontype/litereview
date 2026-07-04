@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "litereview",
-  description: "個人文獻研究工具：搜尋 → 找重點 → 比較",
+  description: "個人文獻研究工具：匯入 → 找重點 → 比較",
 };
 
 export default function RootLayout({

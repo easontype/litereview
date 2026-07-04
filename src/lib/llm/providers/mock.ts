@@ -58,6 +58,13 @@ function mockReview(): string {
       { statement: "【mock】本文方法的效能提升主要來自資料規模而非架構創新", rationale: "消融實驗未能區分兩者貢獻" },
       { statement: "【mock】本文結論可推廣到其他領域", rationale: "僅在單一領域驗證，推廣性存疑" },
     ],
+    evidence: {
+      scores: {
+        methodological_rigor: [{ quote: "【mock】審查出處引文：實驗依三組對照設計進行", page: 1 }],
+      },
+      strengths: [[{ quote: "【mock】優點出處引文", page: 1 }], []],
+      weaknesses: [[], []],
+    },
   });
 }
 
@@ -93,5 +100,9 @@ function mockKeypoints(): string {
     novelty_rating: "Medium",
     novelty_reason: "【mock】新穎度理由",
     key_formulas_or_algorithms: [],
+    evidence: {
+      research_question: [{ quote: "【mock】出處引文：本研究旨在解決以下問題", page: 1 }],
+      methodology: [{ quote: "【mock】出處引文：我們採用以下方法", page: null }],
+    },
   });
 }

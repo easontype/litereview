@@ -13,3 +13,8 @@ export function getUploadedPdf(paperId: string): Buffer | null {
   const filePath = path.join(UPLOAD_DIR, `${paperId}.pdf`);
   return fs.existsSync(filePath) ? fs.readFileSync(filePath) : null;
 }
+
+/** 是否有本機 PDF 可供閱覽（上傳或 Unpaywall 落地的都放同一路徑）。 */
+export function hasStoredPdf(paperId: string): boolean {
+  return fs.existsSync(path.join(UPLOAD_DIR, `${paperId}.pdf`));
+}

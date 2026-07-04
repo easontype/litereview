@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { addToWorkspace, listWorkspace, upsertPaper } from "@/lib/db";
 import { getRank } from "@/lib/rankings/lookup";
+import { hasStoredPdf } from "@/lib/fulltext/upload-store";
 import type { PaperResult } from "@/lib/scholarly/types";
 
 export async function GET() {
   return NextResponse.json({
-    items: listWorkspace().map((item) => ({ ...item, rank: getRank(item.issn, item.venue) })),
+    items: listWorkspace().map((item) => ({
+      ...item,
+      rank: getRank(item.issn, item.venue),
+      hasPdf: hasStoredPdf(item.id),
+    })),
   });
 }
 

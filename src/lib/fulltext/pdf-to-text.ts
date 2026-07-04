@@ -138,7 +138,12 @@ function joinLines(texts: string[]): string {
   return out.join("\n");
 }
 
-export async function extractPdfText(buffer: Buffer): Promise<string> {
+export interface PdfTextResult {
+  text: string;
+  pageCount: number;
+}
+
+export async function extractPdfText(buffer: Buffer): Promise<PdfTextResult> {
   const doc = await getDocument({
     data: new Uint8Array(buffer),
     useSystemFonts: true,
@@ -166,11 +171,13 @@ export async function extractPdfText(buffer: Buffer): Promise<string> {
     }
 
     const isNoise = buildNoiseFilter(pages);
+    // 頁碼標記要在過濾空頁「前」按實體頁索引加上，跳過空白頁時編號才對得上 PDF viewer 的 #page=N。
     const pageTexts = pages.map((lines, i) => {
       const kept = lines.filter((l) => !isNoise(l.text));
-      return joinLines(linearizePage(kept, pageTwoColumn[i]));
+      const text = joinLines(linearizePage(kept, pageTwoColumn[i]));
+      return text.trim() ? `【第 ${i + 1} 頁】\n${text}` : null;
     });
-    return pageTexts.filter((t) => t.trim()).join("\n\n");
+    return { text: pageTexts.filter((t): t is string => t !== null).join("\n\n"), pageCount };
   } finally {
     await doc.destroy();
   }

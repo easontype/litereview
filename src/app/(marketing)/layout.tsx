@@ -3,7 +3,7 @@ import "./landing.css";
 
 export const metadata: Metadata = {
   title: "litereview — 替每一篇論文，留下硃批",
-  description: "搜尋、找重點、比較、辯論——本機優先的個人文獻研究工具。開源 MIT。",
+  description: "匯入、找重點、比較、辯論——本機優先的個人文獻研究工具。開源 MIT。",
 };
 
 export default function MarketingLayout({

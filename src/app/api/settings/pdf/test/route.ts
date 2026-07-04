@@ -13,7 +13,7 @@ export async function POST() {
   try {
     const text = command
       ? await convertViaExternalCommand(sample, command)
-      : await extractPdfText(sample);
+      : (await extractPdfText(sample)).text;
     if (!text.trim()) throw new Error("轉換結果為空");
     return NextResponse.json({
       ok: true,

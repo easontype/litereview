@@ -5,11 +5,18 @@
 import { convertViaExternalCommand, getPdf2mdCommand } from "./external-converter";
 import { extractPdfText } from "./pdf-to-text";
 
-export async function convertPdfToText(buffer: Buffer): Promise<string> {
+export interface PdfConvertResult {
+  text: string;
+  /** Tier 2 外部轉換器輸出沒有頁碼標記，pageCount 為 null。 */
+  pageCount: number | null;
+}
+
+export async function convertPdfToText(buffer: Buffer): Promise<PdfConvertResult> {
   const command = getPdf2mdCommand();
   if (command) {
     try {
-      return await convertViaExternalCommand(buffer, command);
+      const text = await convertViaExternalCommand(buffer, command);
+      return { text, pageCount: null };
     } catch {
       // 外掛失敗不擋路，退回內建轉換
     }

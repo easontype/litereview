@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
-  MagnifyingGlass,
   UploadSimple,
   Command,
   Books,
@@ -85,13 +84,6 @@ export default function DashboardPage() {
       {/* 快捷動作 */}
       <div className="mt-4 flex flex-wrap gap-2">
         <Link
-          href="/search"
-          className="flex items-center gap-2 rounded-sm border border-hairline-strong px-3 py-2 text-[13px] font-medium transition-colors hover:border-slate"
-        >
-          <MagnifyingGlass size={15} className="text-slate" />
-          搜尋文獻
-        </Link>
-        <Link
           href="/workspace"
           className="flex items-center gap-2 rounded-sm border border-hairline-strong px-3 py-2 text-[13px] font-medium transition-colors hover:border-slate"
         >
@@ -139,10 +131,10 @@ export default function DashboardPage() {
         {stats && stats.recent.length === 0 && (
           <p className="mt-3 text-sm text-steel">
             還沒有任何活動——先到
-            <Link href="/search" className="mx-1 text-primary hover:underline">
-              搜尋頁
+            <Link href="/workspace" className="mx-1 text-primary hover:underline">
+              工作區
             </Link>
-            挑幾篇論文。
+            上傳 PDF 或從 Zotero 匯入論文。
           </p>
         )}
         <ul className="mt-2 divide-y divide-hairline border-t border-hairline">

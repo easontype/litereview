@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { MagnifyingGlass, Books, Columns, UploadSimple, SidebarSimple, BookOpen, Medal, GearSix, Scales, SquaresFour, Graph } from "@phosphor-icons/react";
+import { Books, Columns, UploadSimple, SidebarSimple, BookOpen, Medal, GearSix, Scales, SquaresFour, Graph, FilePdf } from "@phosphor-icons/react";
 import { ZoteroImportDialog } from "@/components/zotero-import";
 
 interface SidebarPaper {
@@ -111,10 +111,6 @@ export function Sidebar() {
         <SquaresFour size={16} className="shrink-0 text-slate" />
         <span className="text-sm font-medium">儀表板</span>
       </SidebarLink>
-      <SidebarLink href="/search" active={pathname === "/search"}>
-        <MagnifyingGlass size={16} className="shrink-0 text-slate" />
-        <span className="text-sm font-medium">搜尋文獻</span>
-      </SidebarLink>
       <SidebarLink href="/journals" active={pathname === "/journals"}>
         <Medal size={16} className="shrink-0 text-slate" />
         <span className="text-sm font-medium">期刊分級</span>
@@ -122,6 +118,10 @@ export function Sidebar() {
       <SidebarLink href="/graph" active={pathname === "/graph"}>
         <Graph size={16} className="shrink-0 text-slate" />
         <span className="text-sm font-medium">關係圖譜</span>
+      </SidebarLink>
+      <SidebarLink href="/pdfs" active={pathname === "/pdfs"}>
+        <FilePdf size={16} className="shrink-0 text-slate" />
+        <span className="text-sm font-medium">PDF 閱覽</span>
       </SidebarLink>
 
       <div className="mt-4">
@@ -146,7 +146,7 @@ export function Sidebar() {
           </SidebarLink>
         ))}
         {papers && papers.length === 0 && (
-          <p className="px-2 py-1 text-xs text-steel">先到搜尋頁挑幾篇論文</p>
+          <p className="px-2 py-1 text-xs text-steel">用 Zotero 匯入或上傳 PDF 加入論文</p>
         )}
       </div>
 

@@ -116,7 +116,7 @@ function DebateInner() {
           論文（1–6 篇）
         </label>
         {items && items.length === 0 && (
-          <p className="mt-3 text-sm text-steel">工作區還沒有論文，先到搜尋頁加入論文。</p>
+          <p className="mt-3 text-sm text-steel">工作區還沒有論文——先上傳 PDF 或從 Zotero 匯入。</p>
         )}
         {items && items.length > 0 && (
           <ul className="mt-2 divide-y divide-hairline border-t border-hairline">

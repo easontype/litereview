@@ -4,6 +4,9 @@ import { use, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ZoteroWritebackButton } from "@/components/zotero-writeback";
 import { RankBadge, type RankInfo } from "@/components/rank-badge";
+import { EvidenceHover } from "@/components/evidence-popover";
+import { PdfPanel } from "@/components/pdf-panel";
+import type { EvidenceItem } from "@/lib/keypoints/parse";
 
 interface KeypointsData {
   paperId: string;
@@ -17,6 +20,7 @@ interface KeypointsData {
   noveltyRating: string;
   noveltyReason: string;
   keyFormulasOrAlgorithms: string[];
+  evidence?: Record<string, EvidenceItem[]>;
   analyzedAt: string;
 }
 
@@ -32,6 +36,11 @@ interface ReviewData {
     strengths: string[];
     weaknesses: string[];
     motions: Array<{ statement: string; rationale: string }>;
+    evidence?: {
+      scores?: Record<string, EvidenceItem[]>;
+      strengths?: EvidenceItem[][];
+      weaknesses?: EvidenceItem[][];
+    };
   };
   seatInfo: string;
   createdAt: string;
@@ -46,6 +55,7 @@ interface WorkspaceItem {
   zoteroKey: string | null;
   venue: string | null;
   rank?: RankInfo | null;
+  hasPdf?: boolean;
 }
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -68,6 +78,8 @@ export default function PaperPage({ params }: { params: Promise<{ paperId: strin
   const [tab, setTab] = useState<"keypoints" | "review">("keypoints");
   const [keypoints, setKeypoints] = useState<KeypointsData | null>(null);
   const [paper, setPaper] = useState<WorkspaceItem | null>(null);
+  /** false＝面板關閉；number|null＝開啟並跳到該頁（null 為第一頁）。 */
+  const [pdfView, setPdfView] = useState<number | null | false>(false);
   const [status, setStatus] = useState<"loading" | "analyzing" | "done" | "failed">("loading");
   const [error, setError] = useState<string | null>(null);
   const [stageMsg, setStageMsg] = useState<string | null>(null);
@@ -176,45 +188,78 @@ export default function PaperPage({ params }: { params: Promise<{ paperId: strin
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paperId]);
 
-  return (
-    <div className="mx-auto w-full max-w-[720px] px-8 pb-24 pt-10">
-      {paper && (
-        <>
-          <h1 className="font-serif text-[30px] font-bold leading-[1.25] tracking-[-0.3px]">
-            {paper.title || "（無標題）"}
-          </h1>
-          <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[12px] text-slate">
-            <RankBadge rank={paper.rank} />
-            {paper.venue && <span>{paper.venue}</span>}
-            <span>
-              {[paper.arxivId && `arXiv:${paper.arxivId}`, paper.doi].filter(Boolean).join(" · ")}
-            </span>
-          </p>
-        </>
-      )}
+  const hasPdf = Boolean(paper?.hasPdf);
+  const openPdf = hasPdf ? (page: number | null) => setPdfView(page) : undefined;
 
-      <div className="mt-6 flex gap-1 border-b border-hairline">
-        <TabButton active={tab === "keypoints"} onClick={() => setTab("keypoints")}>
-          重點
-        </TabButton>
-        <TabButton active={tab === "review"} onClick={() => setTab("review")}>
-          審查
-        </TabButton>
+  return (
+    <div className="flex h-full min-h-0">
+      <div className="min-w-0 flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-[720px] px-8 pb-24 pt-10">
+          {paper && (
+            <>
+              <h1 className="font-serif text-[30px] font-bold leading-[1.25] tracking-[-0.3px]">
+                {paper.title || "（無標題）"}
+              </h1>
+              <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[12px] text-slate">
+                <RankBadge rank={paper.rank} />
+                {paper.venue && <span>{paper.venue}</span>}
+                <span>
+                  {[paper.arxivId && `arXiv:${paper.arxivId}`, paper.doi].filter(Boolean).join(" · ")}
+                </span>
+              </p>
+            </>
+          )}
+
+          <div className="mt-6 flex items-center gap-1 border-b border-hairline">
+            <TabButton active={tab === "keypoints"} onClick={() => setTab("keypoints")}>
+              重點
+            </TabButton>
+            <TabButton active={tab === "review"} onClick={() => setTab("review")}>
+              審查
+            </TabButton>
+            <span className="flex-1" />
+            {hasPdf && (
+              <button
+                type="button"
+                onClick={() => setPdfView(pdfView === false ? null : false)}
+                className={`mb-1 rounded-sm border px-3 py-1 text-[12px] font-medium transition-colors ${
+                  pdfView !== false
+                    ? "border-primary text-primary"
+                    : "border-hairline-strong text-slate hover:border-slate"
+                }`}
+              >
+                {pdfView !== false ? "關閉 PDF" : "開啟 PDF"}
+              </button>
+            )}
+          </div>
+
+          {tab === "keypoints" && (
+            <KeypointsTab
+              paperId={paperId}
+              paper={paper}
+              keypoints={keypoints}
+              status={status}
+              error={error}
+              stageMsg={stageMsg}
+              elapsed={elapsed}
+              onRerun={() => runAnalysis(true)}
+              onOpenPdf={openPdf}
+            />
+          )}
+          {tab === "review" && (
+            <ReviewTab paperId={paperId} hasKeypoints={Boolean(keypoints)} onOpenPdf={openPdf} />
+          )}
+        </div>
       </div>
 
-      {tab === "keypoints" && (
-        <KeypointsTab
+      {pdfView !== false && hasPdf && (
+        <PdfPanel
           paperId={paperId}
-          paper={paper}
-          keypoints={keypoints}
-          status={status}
-          error={error}
-          stageMsg={stageMsg}
-          elapsed={elapsed}
-          onRerun={() => runAnalysis(true)}
+          page={pdfView}
+          title={paper?.title}
+          onClose={() => setPdfView(false)}
         />
       )}
-      {tab === "review" && <ReviewTab paperId={paperId} hasKeypoints={Boolean(keypoints)} />}
     </div>
   );
 }
@@ -254,6 +299,7 @@ function KeypointsTab({
   stageMsg,
   elapsed,
   onRerun,
+  onOpenPdf,
 }: {
   paperId: string;
   paper: WorkspaceItem | null;
@@ -263,6 +309,7 @@ function KeypointsTab({
   stageMsg: string | null;
   elapsed: number;
   onRerun: () => void;
+  onOpenPdf?: (page: number) => void;
 }) {
   const STAGES = ["抓取全文", "LLM 分析", "完成"];
   const stageIndex = stageMsg?.startsWith("分析中") ? 1 : 0;
@@ -338,14 +385,20 @@ function KeypointsTab({
             </button>
           </div>
 
+          {!keypoints.evidence && keypoints.fulltextSource !== "abstract_only" && (
+            <p className="mt-3 text-[12px] text-steel">
+              此結果沒有出處資料——「重新分析」後即可 hover 內容查看原文引文與頁碼。
+            </p>
+          )}
+
           <dl className="mt-6 divide-y divide-hairline border-t border-hairline">
-            <Field label="研究問題" value={keypoints.researchQuestion} />
-            <Field label="研究方法" value={keypoints.methodology} />
-            <Field label="主要發現" value={keypoints.keyFindings} />
-            <Field label="資料與實驗" value={keypoints.dataExperiments} />
-            <Field label="主要貢獻" value={keypoints.contributions} />
-            <Field label="侷限性" value={keypoints.limitations} />
-            <Field label="新穎度" value={`${keypoints.noveltyRating} — ${keypoints.noveltyReason}`} />
+            <Field label="研究問題" value={keypoints.researchQuestion} evidence={keypoints.evidence?.research_question} onOpenPdf={onOpenPdf} />
+            <Field label="研究方法" value={keypoints.methodology} evidence={keypoints.evidence?.methodology} onOpenPdf={onOpenPdf} />
+            <Field label="主要發現" value={keypoints.keyFindings} evidence={keypoints.evidence?.key_findings} onOpenPdf={onOpenPdf} />
+            <Field label="資料與實驗" value={keypoints.dataExperiments} evidence={keypoints.evidence?.data_experiments} onOpenPdf={onOpenPdf} />
+            <Field label="主要貢獻" value={keypoints.contributions} evidence={keypoints.evidence?.contributions} onOpenPdf={onOpenPdf} />
+            <Field label="侷限性" value={keypoints.limitations} evidence={keypoints.evidence?.limitations} onOpenPdf={onOpenPdf} />
+            <Field label="新穎度" value={`${keypoints.noveltyRating} — ${keypoints.noveltyReason}`} evidence={keypoints.evidence?.novelty_reason} onOpenPdf={onOpenPdf} />
             {keypoints.keyFormulasOrAlgorithms.length > 0 && (
               <div className="py-5">
                 <dt className="font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-steel">
@@ -370,11 +423,25 @@ function KeypointsTab({
   );
 }
 
-function Field({ label, value }: { label: string; value: string }) {
+function Field({
+  label,
+  value,
+  evidence,
+  onOpenPdf,
+}: {
+  label: string;
+  value: string;
+  evidence?: EvidenceItem[];
+  onOpenPdf?: (page: number) => void;
+}) {
   return (
     <div className="py-5">
       <dt className="font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-steel">{label}</dt>
-      <dd className="mt-1.5 text-[15px] leading-[1.7]">{value}</dd>
+      <dd className="mt-1.5 text-[15px] leading-[1.7]">
+        <EvidenceHover items={evidence} onOpenPdf={onOpenPdf}>
+          {value}
+        </EvidenceHover>
+      </dd>
     </div>
   );
 }
@@ -388,7 +455,15 @@ function scoreTone(score: number): string {
   return "bg-error";
 }
 
-function ReviewTab({ paperId, hasKeypoints }: { paperId: string; hasKeypoints: boolean }) {
+function ReviewTab({
+  paperId,
+  hasKeypoints,
+  onOpenPdf,
+}: {
+  paperId: string;
+  hasKeypoints: boolean;
+  onOpenPdf?: (page: number) => void;
+}) {
   const [review, setReview] = useState<ReviewData | null>(null);
   const [status, setStatus] = useState<"loading" | "idle" | "running" | "done" | "failed">("loading");
   const [error, setError] = useState<string | null>(null);
@@ -471,6 +546,7 @@ function ReviewTab({ paperId, hasKeypoints }: { paperId: string; hasKeypoints: b
   if (!review) return null;
   const dims = Object.entries(review.data.scores);
   const avg = Math.round((dims.reduce((acc, [, s]) => acc + s.score, 0) / dims.length) * 10) / 10;
+  const evidence = review.data.evidence;
 
   return (
     <div className="mt-4">
@@ -507,7 +583,11 @@ function ReviewTab({ paperId, hasKeypoints }: { paperId: string; hasKeypoints: b
                   style={{ width: `${s.score * 10}%` }}
                 />
               </div>
-              <p className="mt-1 text-[12.5px] leading-[1.6] text-slate">{s.reason}</p>
+              <p className="mt-1 text-[12.5px] leading-[1.6] text-slate">
+                <EvidenceHover items={evidence?.scores?.[dim]} onOpenPdf={onOpenPdf}>
+                  {s.reason}
+                </EvidenceHover>
+              </p>
             </div>
           ))}
         </div>
@@ -522,7 +602,9 @@ function ReviewTab({ paperId, hasKeypoints }: { paperId: string; hasKeypoints: b
           <ul className="mt-2 space-y-1.5">
             {review.data.strengths.map((s, i) => (
               <li key={i} className="text-[13.5px] leading-[1.6]">
-                {s}
+                <EvidenceHover items={evidence?.strengths?.[i]} onOpenPdf={onOpenPdf}>
+                  {s}
+                </EvidenceHover>
               </li>
             ))}
           </ul>
@@ -534,7 +616,9 @@ function ReviewTab({ paperId, hasKeypoints }: { paperId: string; hasKeypoints: b
           <ul className="mt-2 space-y-1.5">
             {review.data.weaknesses.map((s, i) => (
               <li key={i} className="text-[13.5px] leading-[1.6]">
-                {s}
+                <EvidenceHover items={evidence?.weaknesses?.[i]} onOpenPdf={onOpenPdf}>
+                  {s}
+                </EvidenceHover>
               </li>
             ))}
           </ul>

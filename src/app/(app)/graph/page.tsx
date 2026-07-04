@@ -135,10 +135,10 @@ export default function GraphPage() {
       {loaded && nodes.length === 0 && (
         <p className="mt-8 text-sm text-steel">
           工作區還沒有論文——先到
-          <Link href="/search" className="mx-1 text-primary hover:underline">
-            搜尋頁
+          <Link href="/workspace" className="mx-1 text-primary hover:underline">
+            工作區
           </Link>
-          加幾篇，比較或辯論之後，這裡會長出關係網。
+          上傳 PDF 或從 Zotero 匯入幾篇，比較或辯論之後，這裡會長出關係網。
         </p>
       )}
 

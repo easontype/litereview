@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPaper, getReview, saveReview } from "@/lib/db";
 import { ensureKeypoints } from "@/lib/keypoints/analyze";
-import { getFullText } from "@/lib/fulltext";
-import { getUploadedPdf } from "@/lib/fulltext/upload-store";
+import { getFullTextCached } from "@/lib/fulltext/store";
 import { buildReviewPrompt } from "@/lib/review/prompt";
 import { parseReviewResponse } from "@/lib/review/parse";
 import { resolveSeat } from "@/lib/llm/registry";
@@ -31,10 +30,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ pap
     // 品質閘門的前置：沒有 keypoints 就先跑找重點（重用 Phase 3/4 的既有流程）
     const keypoints = await ensureKeypoints(paperId);
 
-    const fullText = await getFullText(
-      { arxivId: paper.arxivId, doi: paper.doi, pdfUrl: paper.pdfUrl, abstract: paper.abstract },
-      getUploadedPdf(paperId)
-    );
+    // 重用找重點時存下的全文快取，兩個分頁的出處頁碼才一致（也免去重複抽取）。
+    const fullText = await getFullTextCached(paperId, {
+      arxivId: paper.arxivId,
+      doi: paper.doi,
+      pdfUrl: paper.pdfUrl,
+      abstract: paper.abstract,
+    });
 
     const prompt = buildReviewPrompt(paper, keypoints, fullText.text, fullText.source === "abstract_only");
     const seat = resolveSeat("reviewer");

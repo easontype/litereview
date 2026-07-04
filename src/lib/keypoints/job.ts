@@ -1,6 +1,5 @@
 import { getPaper, getKeypoints, saveKeypoints } from "@/lib/db";
-import { getFullText } from "@/lib/fulltext";
-import { getUploadedPdf } from "@/lib/fulltext/upload-store";
+import { getFullTextCached } from "@/lib/fulltext/store";
 import { buildKeypointsPrompt } from "./prompt";
 import { parseKeypointsResponse } from "./parse";
 import { resolveSeat } from "@/lib/llm/registry";
@@ -37,9 +36,11 @@ async function run(jobId: string, paperId: string, forceRefresh: boolean): Promi
     if (!paper) throw new Error(`找不到論文: ${paperId}`);
 
     emit(jobId, "stage", { stage: "fetching_fulltext", message: "抓取全文中…" });
-    const fullText = await getFullText(
+    const fullText = await getFullTextCached(
+      paperId,
       { arxivId: paper.arxivId, doi: paper.doi, pdfUrl: paper.pdfUrl, abstract: paper.abstract },
-      getUploadedPdf(paperId)
+      null,
+      { refresh: forceRefresh }
     );
     if (fullText.source === "abstract_only" && !fullText.text.trim()) {
       throw new Error("找不到可分析的內容：PDF 抽不出文字（可能是掃描影像檔），且沒有摘要可退回；可在設定頁掛外部 PDF 轉換工具再試");

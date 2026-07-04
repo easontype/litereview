@@ -2,20 +2,26 @@ import { test, expect } from "@playwright/test";
 
 const BASE_URL = process.env.LR_BASE_URL ?? "http://localhost:3010";
 
-test("搜尋頁加入工作區 → 工作區頁顯示 → 移除 → 重新加入（還原狀態）", async ({ page }) => {
-  await page.goto(`${BASE_URL}/search`);
+// v1.5 移除搜尋頁後改用 API 播種；phase3 / phase4 依賴 Attention 以此標題留在工作區。
+const ATTENTION = {
+  title: "Attention Is All You Need",
+  abstract: "The dominant sequence transduction models are based on complex recurrent or convolutional neural networks.",
+  year: 2017,
+  authors: ["Ashish Vaswani", "Noam Shazeer"],
+  arxivId: "1706.03762",
+  doi: null,
+  pdfUrl: null,
+  citationCount: 140000,
+  source: "arxiv",
+  venue: null,
+};
 
-  const searchInput = page.getByPlaceholder(/transformer attention/);
-  await searchInput.fill("1706.03762");
-  await page.getByRole("button", { name: "搜尋" }).click();
+test("API 播種加入工作區 → 工作區頁顯示 → 移除 → 重新加入（還原狀態）", async ({ page, request }) => {
+  const created = await request.post(`${BASE_URL}/api/workspace/papers`, { data: { paper: ATTENTION } });
+  expect(created.ok()).toBeTruthy();
+
+  await page.goto(`${BASE_URL}/workspace`);
   const main = page.locator("main");
-  await expect(main.getByText("Attention Is All You Need")).toBeVisible({ timeout: 15000 });
-
-  await page.getByRole("button", { name: "加入工作區" }).click();
-  await expect(page.getByRole("button", { name: "已加入" })).toBeVisible();
-
-  await page.getByRole("link", { name: /^工作區/ }).click();
-  await expect(page).toHaveURL(`${BASE_URL}/workspace`);
   const row = main.locator("li", { hasText: "Attention Is All You Need" });
   await expect(row).toBeVisible();
   await expect(row.getByText(/已分析|未分析|僅摘要/)).toBeVisible();
@@ -26,13 +32,9 @@ test("搜尋頁加入工作區 → 工作區頁顯示 → 移除 → 重新加�
   await expect(main.getByText("Attention Is All You Need")).toBeHidden();
 
   // 還原狀態：phase3 / phase4 依賴 Attention 在工作區
-  await page.getByRole("link", { name: "搜尋文獻" }).click();
-  await page.getByPlaceholder(/transformer attention/).fill("1706.03762");
-  await page.getByRole("button", { name: "搜尋" }).click();
-  await expect(main.getByText("Attention Is All You Need")).toBeVisible({ timeout: 15000 });
-  await page.getByRole("button", { name: "加入工作區" }).click();
-  await expect(page.getByRole("button", { name: "已加入" })).toBeVisible();
+  const restored = await request.post(`${BASE_URL}/api/workspace/papers`, { data: { paper: ATTENTION } });
+  expect(restored.ok()).toBeTruthy();
 
-  await page.getByRole("link", { name: /^工作區/ }).click();
+  await page.reload();
   await expect(main.locator("li", { hasText: "Attention Is All You Need" })).toBeVisible();
 });
