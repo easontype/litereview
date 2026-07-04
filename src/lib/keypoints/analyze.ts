@@ -18,7 +18,7 @@ export async function ensureKeypoints(paperId: string): Promise<KeypointsRow> {
     getUploadedPdf(paperId)
   );
   if (fullText.source === "abstract_only" && !fullText.text.trim()) {
-    throw new Error("找不到可分析的內容：PDF 解析失敗，且沒有摘要可退回（請確認已設定 MARKER_API_KEY）");
+    throw new Error("找不到可分析的內容：PDF 抽不出文字（可能是掃描影像檔），且沒有摘要可退回；可在設定頁掛外部 PDF 轉換工具再試");
   }
 
   const prompt = buildKeypointsPrompt(paper, fullText.text, fullText.source === "abstract_only");

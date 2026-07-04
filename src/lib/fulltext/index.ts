@@ -1,5 +1,5 @@
 import { fetchArxivFullText } from "./arxiv-parser";
-import { parsePdfToMarkdown } from "./marker-parser";
+import { convertPdfToText } from "./pdf-convert";
 import { fetchOaPdfText } from "./oa-pdf-fetch";
 
 export type FullTextSource = "arxiv" | "upload" | "unpaywall" | "abstract_only";
@@ -29,7 +29,7 @@ export async function getFullText(paper: FullTextInput, uploadBuffer?: Buffer | 
 
   if (uploadBuffer) {
     try {
-      const text = await parsePdfToMarkdown(uploadBuffer);
+      const text = await convertPdfToText(uploadBuffer);
       if (text.trim()) return { text, source: "upload" };
     } catch {
       // 忽略，繼續 fallback

@@ -61,6 +61,8 @@ export default function SettingsPage() {
   const [testResults, setTestResults] = useState<Record<string, string>>({});
   const [zoteroHasKey, setZoteroHasKey] = useState(false);
   const [zoteroInput, setZoteroInput] = useState("");
+  const [pdfCommand, setPdfCommand] = useState("");
+  const [pdfNotice, setPdfNotice] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
 
   useEffect(() => {
     let ignore = false;
@@ -77,6 +79,11 @@ export default function SettingsPage() {
       .then((r) => r.json())
       .then((json) => {
         if (!ignore) setZoteroHasKey(json.hasKey);
+      });
+    fetch("/api/settings/pdf")
+      .then((r) => r.json())
+      .then((json) => {
+        if (!ignore) setPdfCommand(json.command ?? "");
       });
     return () => {
       ignore = true;
@@ -193,6 +200,42 @@ export default function SettingsPage() {
   async function clearZoteroKey() {
     await fetch("/api/settings/zotero", { method: "DELETE" });
     setZoteroHasKey(false);
+  }
+
+  async function savePdfCommand(): Promise<boolean> {
+    setPdfNotice(null);
+    const res = await fetch("/api/settings/pdf", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ command: pdfCommand }),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      setPdfNotice({ tone: "error", text: json.error ?? "儲存失敗" });
+      return false;
+    }
+    setPdfNotice({ tone: "ok", text: "已儲存" });
+    return true;
+  }
+
+  async function testPdfConvert() {
+    setPdfNotice({ tone: "ok", text: "測試中…" });
+    if (!(await savePdfCommand())) return;
+    setPdfNotice({ tone: "ok", text: "測試中…" });
+    try {
+      const res = await fetch("/api/settings/pdf/test", { method: "POST" });
+      const json = await res.json();
+      setPdfNotice(
+        json.ok
+          ? {
+              tone: "ok",
+              text: `✓ ${json.tier === "external" ? "外部命令" : "內建 pdfjs"} 轉換正常：「${json.preview}」`,
+            }
+          : { tone: "error", text: `✗ ${json.error}` }
+      );
+    } catch {
+      setPdfNotice({ tone: "error", text: "✗ 測試請求失敗" });
+    }
   }
 
   if (!providers) {
@@ -442,6 +485,51 @@ export default function SettingsPage() {
               儲存
             </button>
           </form>
+        )}
+      </section>
+
+      {/* ── PDF 轉換 ─────────────────────────── */}
+      <section className="mt-10">
+        <h2 className="font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-steel">
+          PDF 轉換
+        </h2>
+        <p className="mt-1.5 text-[13px] leading-[1.6] text-slate">
+          上傳 PDF／開放取用 PDF 的全文抽取預設走內建轉換（pdfjs，零安裝）。要更高品質的
+          Markdown（公式、表格、複雜版面），可掛本機外部轉換命令：
+          <code className="mx-1 rounded-xs bg-black/5 px-1 py-0.5 font-mono text-[12px]">{"{input}"}</code>
+          會替換成暫存 PDF 路徑，結果收 stdout；或用
+          <code className="mx-1 rounded-xs bg-black/5 px-1 py-0.5 font-mono text-[12px]">{"{output}"}</code>
+          指定輸出檔、
+          <code className="mx-1 rounded-xs bg-black/5 px-1 py-0.5 font-mono text-[12px]">{"{outdir}"}</code>
+          指定輸出資料夾（自動撈其中的 .md）。留空＝只用內建轉換。範例見 README「PDF 轉換」章節（Docling／本機 Marker）。
+        </p>
+        <div className="mt-3 flex max-w-[560px] gap-2">
+          <input
+            value={pdfCommand}
+            onChange={(e) => setPdfCommand(e.target.value)}
+            placeholder='例：python -m my_pdf2md "{input}"'
+            className="h-8 min-w-0 flex-1 rounded-sm border border-hairline-strong bg-canvas px-2.5 font-mono text-[13px] outline-none placeholder:text-steel focus:border-primary focus:ring-2 focus:ring-primary-tint"
+          />
+          <button
+            type="button"
+            onClick={savePdfCommand}
+            className="h-8 shrink-0 rounded-sm bg-primary px-3 text-xs font-medium text-on-primary transition-colors hover:bg-primary-pressed"
+          >
+            儲存
+          </button>
+          <button
+            type="button"
+            onClick={testPdfConvert}
+            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-sm border border-hairline-strong px-2.5 text-xs font-medium transition-colors hover:border-slate"
+          >
+            <PlugsConnected size={13} />
+            測試轉換
+          </button>
+        </div>
+        {pdfNotice && (
+          <p className={`mt-2 text-xs ${pdfNotice.tone === "ok" ? "text-success" : "text-error"}`}>
+            {pdfNotice.text}
+          </p>
         )}
       </section>
     </div>

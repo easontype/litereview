@@ -29,7 +29,7 @@ LLM 呼叫走可調配的 adapter 層：預設 provider 是 `claude -p` CLI subp
    claude login
    ```
    （用你的 Claude 訂閱帳號登入即可，不需要另外申請 API key；若你在設定中心把所有座位都指到其他家的 API，則可跳過這步）
-3.（選用）**Marker API key**（`datalab.to`）：非 arXiv 來源的論文若要解析上傳 PDF 全文，需要這組金鑰。沒有的話系統會自動退回「僅摘要」分析，其餘功能不受影響。前往 [datalab.to](https://www.datalab.to) 註冊即可取得。
+PDF 全文抽取（上傳 PDF／Unpaywall 開放取用 PDF）內建於本專案（pdfjs），**不需要任何金鑰或額外安裝**；要更高品質的轉換可另掛本機工具，見下方「PDF 轉換」章節。
 
 ## 安裝與啟動
 
@@ -45,8 +45,7 @@ npm run dev
 
 | 變數 | 必填 | 用途 |
 |---|---|---|
-| `MARKER_API_KEY` | 選用 | `datalab.to` Marker API 金鑰，用來解析非 arXiv 論文的上傳 PDF 全文。留空時只影響「上傳 PDF」這條全文抓取路徑，其餘功能（搜尋/找重點/比較）正常運作。 |
-| `CONTACT_EMAIL` | 建議填 | OpenAlex 要求呼叫方在 User-Agent 帶上聯絡 email 才能進入「禮貌池」（更高速率限制），填你自己的 email 即可。 |
+| `CONTACT_EMAIL` | 建議填 | OpenAlex「禮貌池」（更高速率限制）與 Unpaywall API（**必填自己的 email，不填會跳過開放取用 PDF 查詢**）都用這個聯絡 email。 |
 
 `.env.local` 已被 `.gitignore` 排除，不會進版控；repo 只保留 `.env.local.example` 範本。其餘金鑰（各家模型 API key、Zotero API key）都在 app 內的「設定」頁輸入，只存本機 SQLite。
 
@@ -75,6 +74,26 @@ npm run fetch:rankings
 ```
 
 沒跑過 ingestion 時 UI 優雅降級（不顯示徽章），其餘功能不受影響。
+
+## PDF 轉換
+
+上傳 PDF 與 Unpaywall 開放取用 PDF 的全文抽取走兩層設計：
+
+- **內建（預設）**：`pdfjs-dist` 抽取文字 + 欄位感知線性化（自動偵測雙欄排版、過濾頁首頁尾、合併斷字），零金鑰、零外部安裝。輸出是給 LLM 讀的線性文字，公式與表格會流失。
+- **外掛（選用）**：「設定」頁可填一條本機外部轉換命令，追求更高品質的 Markdown（公式 LaTeX、表格結構）。命令中 `{input}` 替換成暫存 PDF 路徑，結果收 stdout；或用 `{output}` 指定輸出檔路徑。設定後優先走外掛，失敗自動退回內建轉換。
+
+外掛範例（自行安裝，皆為 Python 工具）：
+
+```bash
+# Docling（IBM，MIT 授權，pip install docling；CPU 可跑、NVIDIA GPU 可加速）
+python -c "from docling.document_converter import DocumentConverter; import sys; print(DocumentConverter().convert(sys.argv[1]).document.export_to_markdown())" {input}
+
+# Marker 本機版（datalab-to/marker；公式/表格精度最強，需 PyTorch；{outdir} 會在執行後自動撈出其中的 .md。
+# 注意授權：程式碼 GPL-3.0、模型權重 OpenRAIL-M——個人研究用免費，透過 subprocess 呼叫不影響本專案 MIT 授權）
+marker_single {input} --output_format markdown --output_dir {outdir}
+```
+
+> 掃描影像型 PDF（無文字層）內建轉換抽不出字，會退回「僅摘要」分析；需要 OCR 的話請掛上述外部工具。
 
 ## 模型設定中心（`/settings`）
 
