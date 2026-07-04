@@ -24,6 +24,21 @@ export interface DebateTurn {
   content: string;
 }
 
+/**
+ * 辯論引文庫的一條引文：辯手行文以【E1】這類標記回引，UI 渲染成可 hover 的 chip。
+ * id 全場遞增（跨論文不重複）。
+ */
+export interface DebateEvidenceRef {
+  id: string;
+  /** 0 起算的論文序（引文庫顯示「論文 N」用）。 */
+  paperIndex: number;
+  paperId: string;
+  /** 中文欄名（如「研究方法」）。 */
+  field: string;
+  quote: string;
+  page: number | null;
+}
+
 export interface DebateVerdict {
   winner: DebateRole | "draw";
   proponentScore: number;

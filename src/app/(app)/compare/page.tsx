@@ -2,6 +2,8 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { EvidenceHover } from "@/components/evidence-popover";
+import type { EvidenceItem } from "@/lib/keypoints/parse";
 
 interface WorkspaceItem {
   id: string;
@@ -22,6 +24,7 @@ interface CompareResult {
   limitations: string[];
   novelty: string[];
   verdict: string;
+  evidence?: Partial<Record<CompareArrayField, EvidenceItem[][]>>;
 }
 
 const ROWS: { key: CompareArrayField; label: string }[] = [
@@ -211,7 +214,13 @@ function CompareInner() {
                             rowIndex % 2 === 1 ? "bg-surface-soft" : ""
                           }`}
                         >
-                          {cell}
+                          <EvidenceHover
+                            strategy="fixed"
+                            items={result.evidence?.[row.key]?.[i]}
+                            onOpenPdf={(page) => router.push(`/workspace/${result.paperIds[i]}?pdf=${page}`)}
+                          >
+                            {cell}
+                          </EvidenceHover>
                         </td>
                       ))}
                     </tr>

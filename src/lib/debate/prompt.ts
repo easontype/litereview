@@ -1,7 +1,16 @@
-import { PHASE_LABEL, ROLE_LABEL, type DebatePhase, type DebateRole, type DebateTurn } from "./parse";
+import { EVIDENCE_FIELD_LABEL, type EvidenceItem } from "@/lib/keypoints/parse";
+import {
+  PHASE_LABEL,
+  ROLE_LABEL,
+  type DebateEvidenceRef,
+  type DebatePhase,
+  type DebateRole,
+  type DebateTurn,
+} from "./parse";
 
 /** 與 db 的 KeypointsRow 結構相容（只取 prompt 需要的欄位）。 */
 export interface DebatePaperContext {
+  paperId: string;
   title: string;
   keypoints: {
     researchQuestion: string;
@@ -12,7 +21,53 @@ export interface DebatePaperContext {
     limitations: string;
     noveltyRating: string;
     noveltyReason: string;
+    evidence?: Record<string, EvidenceItem[]>;
   };
+}
+
+/** 引文庫的截取上限：每篇每欄前 2 條、每篇上限 8 條、全場上限 40 條、quote 截 160 字（防 prompt 過長）。 */
+const EVIDENCE_MAX_PER_FIELD = 2;
+const EVIDENCE_MAX_PER_PAPER = 8;
+const EVIDENCE_MAX_TOTAL = 40;
+const EVIDENCE_QUOTE_MAX_CHARS = 160;
+
+/** 把各論文既有的 keypoints 出處引文編成全場遞增的【E#】引文庫，辯手行文以編號回引。 */
+export function buildDebateEvidenceIndex(papers: DebatePaperContext[]): DebateEvidenceRef[] {
+  const refs: DebateEvidenceRef[] = [];
+  papers.forEach((p, paperIndex) => {
+    const evidence = p.keypoints.evidence;
+    if (!evidence || refs.length >= EVIDENCE_MAX_TOTAL) return;
+    const orderedFields = [
+      ...Object.keys(EVIDENCE_FIELD_LABEL).filter((f) => f in evidence),
+      ...Object.keys(evidence).filter((f) => !(f in EVIDENCE_FIELD_LABEL)),
+    ];
+    let count = 0;
+    for (const field of orderedFields) {
+      if (count >= EVIDENCE_MAX_PER_PAPER || refs.length >= EVIDENCE_MAX_TOTAL) break;
+      for (const item of (evidence[field] ?? []).slice(0, EVIDENCE_MAX_PER_FIELD)) {
+        if (count >= EVIDENCE_MAX_PER_PAPER || refs.length >= EVIDENCE_MAX_TOTAL) break;
+        count += 1;
+        refs.push({
+          id: `E${refs.length + 1}`,
+          paperIndex,
+          paperId: p.paperId,
+          field: EVIDENCE_FIELD_LABEL[field] ?? field,
+          quote: item.quote.slice(0, EVIDENCE_QUOTE_MAX_CHARS),
+          page: item.page,
+        });
+      }
+    }
+  });
+  return refs;
+}
+
+function renderEvidenceLibrary(refs: DebateEvidenceRef[]): string {
+  return refs
+    .map((r) => {
+      const pagePart = r.page !== null ? `・第 ${r.page} 頁` : "";
+      return `【${r.id}】論文 ${r.paperIndex + 1}・${r.field}${pagePart}：「${r.quote}」`;
+    })
+    .join("\n");
 }
 
 /**
@@ -62,21 +117,33 @@ const PHASE_INSTRUCTION: Record<DebatePhase, Record<DebateRole, string>> = {
   },
 };
 
-/** 組正/反方發言 prompt：角色設定 + 論文脈絡 + 目前逐字稿 + 階段指令。回應為純文字（非 JSON）。 */
+/** 組正/反方發言 prompt：角色設定 + 論文脈絡（+ 引文庫）+ 目前逐字稿 + 階段指令。回應為純文字（非 JSON）。 */
 export function buildSpeechPrompt(
   motion: string,
   papers: DebatePaperContext[],
   transcript: DebateTurn[],
   role: DebateRole,
-  phase: DebatePhase
+  phase: DebatePhase,
+  evidence: DebateEvidenceRef[] = []
 ): string {
+  const evidenceBlock =
+    evidence.length > 0
+      ? `
+
+## 引文庫
+${renderEvidenceLibrary(evidence)}`
+      : "";
+  const evidenceRule =
+    evidence.length > 0
+      ? "\n- 引用證據時在該句句尾標注引文庫編號（如【E2】），只能使用引文庫中存在的編號；沒有合適引文的論點不要硬標。"
+      : "";
   return `你是一場學術辯論中的${ROLE_LABEL[role]}辯手。辯論圍繞以下論文與辯題進行，評判標準是論證品質與證據運用，不是修辭。
 
 ## 辯題
 ${motion}
 
 ## 論文脈絡
-${renderPapersContext(papers)}
+${renderPapersContext(papers)}${evidenceBlock}
 
 ## 目前逐字稿
 ${renderTranscript(transcript)}
@@ -87,7 +154,7 @@ ${PHASE_INSTRUCTION[phase][role]}
 要求：
 - 用繁體中文，直接輸出發言內容本身，不要加「正方：」之類的前綴，不要用 markdown 標題。
 - 控制在 300 字以內，論點編號清楚。
-- 立場必須鮮明，禁止騎牆。`;
+- 立場必須鮮明，禁止騎牆。${evidenceRule}`;
 }
 
 /** 組裁判 prompt：讀完整逐字稿後輸出 JSON 判決（含 "winner" 欄位，為 mock provider 的判別標記）。 */

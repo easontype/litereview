@@ -1,23 +1,24 @@
 @import url("https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@600;700&display=swap");
 @import "tailwindcss";
 
-/* Design tokens — 依專案根目錄 DESIGN.md（Notion 文書風 × 白/淺藍/藍，淺色定版） */
+/* Design tokens — 依專案根目錄 DESIGN.md（文書風 × 暖白/硃砂紅「硃批」色盤，淺色定版） */
 :root {
   --canvas: #ffffff;
-  --surface: #f6f8fa;
-  --surface-soft: #fafbfc;
-  --primary-soft: #eef6fd;
-  --primary-tint: #dcecfa;
-  --ink: #1f2328;
-  --slate: #57606a;
-  --steel: #8b949e;
-  --hairline: #e3e8ee;
-  --hairline-strong: #c9d2dc;
-  --primary: #0075de;
-  --primary-pressed: #005bab;
+  --surface: #faf8f3;
+  --surface-soft: #fcfbf7;
+  --primary-soft: #faf0ea;
+  --primary-tint: #f5ded3;
+  --ink: #211d16;
+  --slate: #5c5546;
+  --steel: #8f8776;
+  --hairline: #e8e2d5;
+  --hairline-strong: #d3cab7;
+  --primary: #bf3b1b;
+  --primary-pressed: #992d10;
   --on-primary: #ffffff;
   --success: #1a7f37;
   --warning: #9a6700;
+  --warning-soft: #fbf4e3;
   --error: #d1242f;
 }
 
@@ -37,6 +38,7 @@
   --color-on-primary: var(--on-primary);
   --color-success: var(--success);
   --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
   --color-error: var(--error);
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui;
   --font-mono: var(--font-geist-mono), ui-monospace;

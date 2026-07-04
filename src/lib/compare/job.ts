@@ -1,6 +1,6 @@
 import { getPaper, saveComparison } from "@/lib/db";
 import { ensureKeypoints } from "@/lib/keypoints/analyze";
-import { buildComparePrompt } from "./prompt";
+import { buildCompareEvidenceIndex, buildComparePrompt } from "./prompt";
 import { parseCompareResponse } from "./parse";
 import { resolveSeat } from "@/lib/llm/registry";
 import { completeJob, createJob, emit, failJob } from "@/lib/jobs/store";
@@ -33,9 +33,10 @@ async function run(jobId: string, paperIds: string[]): Promise<void> {
 
     emit(jobId, "stage", { stage: "comparing", message: "五維比較分析中…" });
     const prompt = buildComparePrompt(papers);
+    const { refs } = buildCompareEvidenceIndex(papers);
     const seat = resolveSeat("compare");
     const raw = await seat.provider.chat(prompt, { model: seat.model });
-    const result = parseCompareResponse(raw, papers.length);
+    const result = parseCompareResponse(raw, papers.length, refs);
     const compareId = saveComparison(paperIds, result);
 
     completeJob(jobId, { compareId });

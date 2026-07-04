@@ -1,7 +1,8 @@
 "use client";
 
-import { use, useEffect, useRef, useState } from "react";
+import { Suspense, use, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { ZoteroWritebackButton } from "@/components/zotero-writeback";
 import { RankBadge, type RankInfo } from "@/components/rank-badge";
 import { EvidenceHover } from "@/components/evidence-popover";
@@ -74,12 +75,25 @@ const SCORE_LABEL: Record<string, string> = {
 };
 
 export default function PaperPage({ params }: { params: Promise<{ paperId: string }> }) {
+  // useSearchParams 需要 Suspense 邊界（Next App Router 要求，仿 compare 頁範式）
+  return (
+    <Suspense fallback={null}>
+      <PaperPageInner params={params} />
+    </Suspense>
+  );
+}
+
+function PaperPageInner({ params }: { params: Promise<{ paperId: string }> }) {
   const { paperId } = use(params);
+  const searchParams = useSearchParams();
   const [tab, setTab] = useState<"keypoints" | "review">("keypoints");
   const [keypoints, setKeypoints] = useState<KeypointsData | null>(null);
   const [paper, setPaper] = useState<WorkspaceItem | null>(null);
-  /** false＝面板關閉；number|null＝開啟並跳到該頁（null 為第一頁）。 */
-  const [pdfView, setPdfView] = useState<number | null | false>(false);
+  /** false＝面板關閉；number|null＝開啟並跳到該頁（null 為第一頁）。?pdf=N 深連結可直接開到第 N 頁。 */
+  const [pdfView, setPdfView] = useState<number | null | false>(() => {
+    const n = Number(searchParams.get("pdf"));
+    return Number.isInteger(n) && n >= 1 ? n : false;
+  });
   const [status, setStatus] = useState<"loading" | "analyzing" | "done" | "failed">("loading");
   const [error, setError] = useState<string | null>(null);
   const [stageMsg, setStageMsg] = useState<string | null>(null);
@@ -362,7 +376,7 @@ function KeypointsTab({
       {status === "done" && keypoints && (
         <div className="mt-4">
           {keypoints.fulltextSource === "abstract_only" && (
-            <div className="mb-5 rounded-r-sm border-l-[3px] border-warning bg-[#fff8e6] px-3.5 py-2.5 text-[13px] leading-[1.6]">
+            <div className="mb-5 rounded-r-sm border-l-[3px] border-warning bg-warning-soft px-3.5 py-2.5 text-[13px] leading-[1.6]">
               僅摘要分析：找不到論文全文，以下結果僅根據摘要推論，可信度較低。
             </div>
           )}

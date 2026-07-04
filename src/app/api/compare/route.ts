@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPaper, saveComparison, listComparisons } from "@/lib/db";
 import { ensureKeypoints } from "@/lib/keypoints/analyze";
-import { buildComparePrompt } from "@/lib/compare/prompt";
+import { buildCompareEvidenceIndex, buildComparePrompt } from "@/lib/compare/prompt";
 import { parseCompareResponse } from "@/lib/compare/parse";
 import { resolveSeat } from "@/lib/llm/registry";
 
@@ -30,9 +30,10 @@ export async function POST(req: NextRequest) {
     }
 
     const prompt = buildComparePrompt(papers);
+    const { refs } = buildCompareEvidenceIndex(papers);
     const seat = resolveSeat("compare");
     const raw = await seat.provider.chat(prompt, { model: seat.model });
-    const result = parseCompareResponse(raw, papers.length);
+    const result = parseCompareResponse(raw, papers.length, refs);
     const id = saveComparison(paperIds as string[], result);
 
     return NextResponse.json({ id, paperIds, ...result });

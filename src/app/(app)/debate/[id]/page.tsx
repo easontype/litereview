@@ -1,7 +1,9 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { Fragment, use, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { EvidenceHover } from "@/components/evidence-popover";
 
 interface DebateTurn {
   role: "proponent" | "opponent";
@@ -9,6 +11,15 @@ interface DebateTurn {
   round?: number;
   seatInfo: string;
   content: string;
+}
+
+interface DebateEvidenceRef {
+  id: string;
+  paperIndex: number;
+  paperId: string;
+  field: string;
+  quote: string;
+  page: number | null;
 }
 
 interface DebateVerdict {
@@ -31,10 +42,46 @@ interface DebateMeta {
 const ROLE_LABEL = { proponent: "正方", opponent: "反方" } as const;
 const PHASE_LABEL = { opening: "立論", rebuttal: "駁論", closing: "結辯" } as const;
 
+const EVIDENCE_MARK_RE = /(【E\d+】)/g;
+
+/**
+ * 把發言內文中的【E#】標記渲染成可 hover 的引文 chip（未命中引文庫的標記原樣輸出）。
+ * 舊紀錄（無引文庫）的逐字稿本無標記，天然降級為純文字。
+ */
+function ContentWithEvidence({
+  text,
+  evidenceById,
+  onOpenPdf,
+}: {
+  text: string;
+  evidenceById: Map<string, DebateEvidenceRef>;
+  onOpenPdf: (ref: DebateEvidenceRef, page: number) => void;
+}) {
+  const parts = text.split(EVIDENCE_MARK_RE);
+  return (
+    <>
+      {parts.map((part, i) => {
+        const m = /^【(E\d+)】$/.exec(part);
+        const ref = m ? evidenceById.get(m[1]) : undefined;
+        if (!ref) return <Fragment key={i}>{part}</Fragment>;
+        return (
+          <EvidenceHover key={i} items={[ref]} onOpenPdf={(page) => onOpenPdf(ref, page)}>
+            <span data-testid="evidence-chip" className="font-mono text-[11px] font-semibold text-primary">
+              【{ref.id}】
+            </span>
+          </EvidenceHover>
+        );
+      })}
+    </>
+  );
+}
+
 export default function DebateDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const router = useRouter();
   const [meta, setMeta] = useState<DebateMeta | null>(null);
   const [turns, setTurns] = useState<DebateTurn[]>([]);
+  const [evidence, setEvidence] = useState<DebateEvidenceRef[]>([]);
   const [live, setLive] = useState<DebateTurn | null>(null);
   const [judgeLive, setJudgeLive] = useState("");
   const [verdict, setVerdict] = useState<DebateVerdict | null>(null);
@@ -46,9 +93,16 @@ export default function DebateDetailPage({ params }: { params: Promise<{ id: str
     let ignore = false;
     let es: EventSource | null = null;
 
-    function applyDbState(debate: DebateMeta & { transcript: DebateTurn[]; verdict: DebateVerdict | null }) {
+    function applyDbState(
+      debate: DebateMeta & {
+        transcript: DebateTurn[];
+        evidence: DebateEvidenceRef[] | null;
+        verdict: DebateVerdict | null;
+      }
+    ) {
       setMeta(debate);
       setTurns(debate.transcript);
+      setEvidence(debate.evidence ?? []);
       setVerdict(debate.verdict);
       if (debate.status === "failed") setError("辯論執行失敗（可回上一頁重新發起）");
     }
@@ -61,7 +115,11 @@ export default function DebateDetailPage({ params }: { params: Promise<{ id: str
           setNotFound(true);
           return;
         }
-        const debate = json.debate as DebateMeta & { transcript: DebateTurn[]; verdict: DebateVerdict | null };
+        const debate = json.debate as DebateMeta & {
+          transcript: DebateTurn[];
+          evidence: DebateEvidenceRef[] | null;
+          verdict: DebateVerdict | null;
+        };
         if (debate.status !== "running") {
           applyDbState(debate);
           return;
@@ -69,12 +127,15 @@ export default function DebateDetailPage({ params }: { params: Promise<{ id: str
 
         // 進行中：SSE 會重播 job 全部歷史事件再即時推送，逐字稿完全由事件流建立
         setMeta(debate);
+        setEvidence(debate.evidence ?? []);
         setStage("連線中…");
         es = new EventSource(`/api/jobs/${id}/events`);
         es.onmessage = (msg) => {
           const event = JSON.parse(msg.data) as { type: string; data: unknown };
           if (event.type === "stage") {
             setStage((event.data as { message: string }).message);
+          } else if (event.type === "evidence") {
+            setEvidence(event.data as DebateEvidenceRef[]);
           } else if (event.type === "token") {
             // 逐字串流：正反方 token 疊進進行中氣泡；裁判 token 進評議區
             const tok = event.data as DebateTurn & { text: string };
@@ -141,6 +202,10 @@ export default function DebateDetailPage({ params }: { params: Promise<{ id: str
     );
   }
 
+  const evidenceById = new Map(evidence.map((ref) => [ref.id, ref]));
+  const openEvidencePdf = (ref: DebateEvidenceRef, page: number) =>
+    router.push(`/workspace/${ref.paperId}?pdf=${page}`);
+
   return (
     <div className="mx-auto w-full max-w-[760px] px-8 pb-24 pt-10">
       {/* ── 標頭 ── */}
@@ -184,7 +249,7 @@ export default function DebateDetailPage({ params }: { params: Promise<{ id: str
                 >
                   {turn.content.split("\n").map((line, j) => (
                     <p key={j} className={j > 0 ? "mt-1.5" : ""}>
-                      {line}
+                      <ContentWithEvidence text={line} evidenceById={evidenceById} onOpenPdf={openEvidencePdf} />
                     </p>
                   ))}
                 </div>
@@ -288,7 +353,10 @@ export default function DebateDetailPage({ params }: { params: Promise<{ id: str
                 );
               })}
             </div>
-            <p className="mt-5 text-sm leading-[1.7]">{verdict.reasoning}</p>
+            <p className="mt-5 text-sm leading-[1.7]">
+              {/* 裁判 prompt 不要求引用，但模型若自發帶【E#】標記也防禦性渲染成 chip */}
+              <ContentWithEvidence text={verdict.reasoning} evidenceById={evidenceById} onOpenPdf={openEvidencePdf} />
+            </p>
           </div>
         </div>
       )}

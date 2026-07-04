@@ -18,6 +18,17 @@ export interface KeypointsData {
   evidence?: Record<string, EvidenceItem[]>;
 }
 
+/** evidence 欄位 → 中文欄名（比較/辯論 prompt 的引文清單顯示用；不放英文欄位名，避免撞 mock provider 判別標記）。 */
+export const EVIDENCE_FIELD_LABEL: Record<string, string> = {
+  research_question: "研究問題",
+  methodology: "研究方法",
+  key_findings: "主要發現",
+  data_experiments: "資料與實驗",
+  contributions: "主要貢獻",
+  limitations: "侷限性",
+  novelty_reason: "新穎度",
+};
+
 const REQUIRED_STRING_FIELDS = [
   "research_question",
   "methodology",

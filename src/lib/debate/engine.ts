@@ -1,9 +1,14 @@
-import { failDebate, finishDebate, getPaper, updateDebateTranscript } from "@/lib/db";
+import { failDebate, finishDebate, getPaper, updateDebateEvidence, updateDebateTranscript } from "@/lib/db";
 import { ensureKeypoints } from "@/lib/keypoints/analyze";
 import { resolveSeat } from "@/lib/llm/registry";
 import type { SeatName } from "@/lib/llm/types";
 import { completeJob, emit, failJob } from "@/lib/jobs/store";
-import { buildSpeechPrompt, buildVerdictPrompt, type DebatePaperContext } from "./prompt";
+import {
+  buildDebateEvidenceIndex,
+  buildSpeechPrompt,
+  buildVerdictPrompt,
+  type DebatePaperContext,
+} from "./prompt";
 import {
   parseVerdictResponse,
   type DebatePhase,
@@ -36,8 +41,13 @@ export async function runDebate(
       const paper = getPaper(paperId);
       if (!paper) throw new Error(`找不到論文: ${paperId}`);
       const keypoints = await ensureKeypoints(paperId);
-      papers.push({ title: paper.title, keypoints });
+      papers.push({ paperId, title: paper.title, keypoints });
     }
+
+    // 引文庫：從各論文 keypoints 的出處引文編成【E#】索引，存庫並推給進行中頁面
+    const evidence = buildDebateEvidenceIndex(papers);
+    updateDebateEvidence(debateId, evidence);
+    emit(debateId, "evidence", evidence);
 
     const transcript: DebateTurn[] = [];
 
@@ -61,7 +71,7 @@ export async function runDebate(
     const speak = async (role: DebateRole, phase: DebatePhase, round?: number) => {
       const seat = resolveSeat(role);
       const seatInfo = `${seat.provider.label} · ${seat.model}`;
-      const prompt = buildSpeechPrompt(motion, papers, transcript, role, phase);
+      const prompt = buildSpeechPrompt(motion, papers, transcript, role, phase, evidence);
       const content = await generate(seat, prompt, {
         role,
         phase,

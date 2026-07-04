@@ -15,7 +15,8 @@ export function createMockProvider(config: ProviderConfig): LlmProvider {
       return mockCompare(Number(m?.[1] ?? 2));
     }
     if (prompt.includes('"research_question"')) return mockKeypoints();
-    return "【mock】這是模擬的辯論發言：基於論文提供的證據，我方立場成立。理由一，實驗設計涵蓋了主要變因；理由二，對照組結果一致；理由三，效應量在多個資料集上穩定。";
+    // 【E1】【E2】對應 mock keypoints 的兩條 evidence（經辯論引文庫編號後必命中）
+    return "【mock】這是模擬的辯論發言：基於論文提供的證據，我方立場成立。理由一，實驗設計涵蓋了主要變因【E1】；理由二，對照組結果一致【E2】；理由三，效應量在多個資料集上穩定。";
   }
 
   return {
@@ -79,6 +80,8 @@ function mockVerdict(): string {
 
 function mockCompare(n: number): string {
   const arr = (label: string) => Array.from({ length: n }, (_, i) => `【mock】論文 ${i + 1} 的${label}摘要`);
+  // 每欄每篇回 P{i}-E1：mock keypoints 的第一條 evidence（research_question, page 1），必命中索引
+  const evidenceRefs = () => Array.from({ length: n }, (_, i) => [`P${i + 1}-E1`]);
   return JSON.stringify({
     methodology: arr("方法"),
     data_experiments: arr("資料與實驗"),
@@ -86,6 +89,13 @@ function mockCompare(n: number): string {
     limitations: arr("侷限"),
     novelty: arr("新穎度"),
     verdict: "【mock】綜合比較結論：各篇各有側重，建議依研究目的選讀。",
+    evidence: {
+      methodology: evidenceRefs(),
+      data_experiments: evidenceRefs(),
+      contributions: evidenceRefs(),
+      limitations: evidenceRefs(),
+      novelty: evidenceRefs(),
+    },
   });
 }
 

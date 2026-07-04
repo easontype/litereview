@@ -98,7 +98,7 @@ function JournalsInner() {
       {error && <p className="mt-4 text-sm text-error">{error}</p>}
 
       {hits && !rankingsLoaded && (
-        <div className="mt-4 rounded-r-sm border-l-[3px] border-warning bg-[#fff8e6] px-3.5 py-2.5 text-[13px] leading-[1.6]">
+        <div className="mt-4 rounded-r-sm border-l-[3px] border-warning bg-warning-soft px-3.5 py-2.5 text-[13px] leading-[1.6]">
           尚未匯入分級資料，只顯示 OpenAlex 品質信號。在專案目錄執行{" "}
           <code className="rounded-xs bg-black/[0.06] px-1 py-0.5 font-mono text-[12px]">
             npm run fetch:rankings

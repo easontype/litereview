@@ -6,7 +6,7 @@ import type { PaperResult } from "./scholarly/types";
 import type { KeypointsData, EvidenceItem } from "./keypoints/parse";
 import type { CompareData } from "./compare/parse";
 import type { ReviewData } from "./review/parse";
-import type { DebateTurn, DebateVerdict } from "./debate/parse";
+import type { DebateEvidenceRef, DebateTurn, DebateVerdict } from "./debate/parse";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const DB_PATH = path.join(DATA_DIR, "litereview.db");
@@ -111,13 +111,19 @@ export function ensureSchema() {
   ensureColumn("papers", "zotero_key", "TEXT");
   ensureColumn("papers", "issn", "TEXT");
   ensureColumn("keypoints", "zotero_note_key", "TEXT");
+  ensureColumn("debates", "evidence_json", "TEXT");
 }
 
 /** 輕量 migration：欄位不存在時 ALTER TABLE 補上（better-sqlite3 無 IF NOT EXISTS for columns）。 */
 function ensureColumn(table: string, column: string, ddl: string) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
   if (!cols.some((c) => c.name === column)) {
-    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+    try {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${ddl}`);
+    } catch (err) {
+      // build 的多個 worker 行程會同時初始化 DB：檢查與 ALTER 之間欄位可能已被別的行程加上
+      if (!(err instanceof Error && err.message.includes("duplicate column name"))) throw err;
+    }
   }
 }
 
@@ -472,6 +478,8 @@ export interface DebateRow {
   titles: string[];
   seats: Record<string, string>;
   transcript: DebateTurn[];
+  /** v1.6 起的引文庫；舊紀錄為 null（逐字稿本無【E#】標記，UI 原樣顯示即降級）。 */
+  evidence: DebateEvidenceRef[] | null;
   verdict: DebateVerdict | null;
   status: "running" | "done" | "failed";
   createdAt: string;
@@ -496,6 +504,10 @@ export function updateDebateTranscript(id: string, transcript: DebateTurn[]) {
   db.prepare(`UPDATE debates SET transcript_json = ? WHERE id = ?`).run(JSON.stringify(transcript), id);
 }
 
+export function updateDebateEvidence(id: string, evidence: DebateEvidenceRef[]) {
+  db.prepare(`UPDATE debates SET evidence_json = ? WHERE id = ?`).run(JSON.stringify(evidence), id);
+}
+
 export function finishDebate(id: string, verdict: DebateVerdict) {
   db.prepare(`UPDATE debates SET verdict_json = ?, status = 'done' WHERE id = ?`).run(
     JSON.stringify(verdict),
@@ -510,7 +522,7 @@ export function failDebate(id: string) {
 export function getDebate(id: string): DebateRow | undefined {
   const row = db
     .prepare(
-      `SELECT id, motion, paper_ids, seats_json, transcript_json, verdict_json, status, created_at
+      `SELECT id, motion, paper_ids, seats_json, transcript_json, evidence_json, verdict_json, status, created_at
        FROM debates WHERE id = ?`
     )
     .get(id) as
@@ -520,6 +532,7 @@ export function getDebate(id: string): DebateRow | undefined {
         paper_ids: string;
         seats_json: string;
         transcript_json: string;
+        evidence_json: string | null;
         verdict_json: string | null;
         status: string;
         created_at: string;
@@ -536,6 +549,7 @@ export function getDebate(id: string): DebateRow | undefined {
     titles,
     seats: JSON.parse(row.seats_json) as Record<string, string>,
     transcript: JSON.parse(row.transcript_json) as DebateTurn[],
+    evidence: row.evidence_json ? (JSON.parse(row.evidence_json) as DebateEvidenceRef[]) : null,
     verdict: row.verdict_json ? (JSON.parse(row.verdict_json) as DebateVerdict) : null,
     status: row.status as DebateRow["status"],
     createdAt: row.created_at,
