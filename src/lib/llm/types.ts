@@ -19,6 +19,8 @@ export interface LlmProvider {
   kind: ProviderKind;
   label: string;
   chat(prompt: string, options: ChatOptions): Promise<string>;
+  /** 逐字串流（可選）：有實作的 provider 在辯論等場景提供 token 級輸出；沒有就退回 chat()。 */
+  chatStream?(prompt: string, options: ChatOptions): AsyncIterable<string>;
 }
 
 /** 存在 settings 表 llm_config JSON 裡的 provider 描述。 */

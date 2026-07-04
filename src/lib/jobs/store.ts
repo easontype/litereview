@@ -21,6 +21,23 @@ interface Job {
 const jobs = new Map<string, Job>();
 const CLEANUP_DELAY_MS = 10 * 60 * 1000;
 
+/** 進行中任務的查找鍵（如 "keypoints:<paperId>"）→ jobId，供頁面重新整理後重新掛上 SSE。 */
+const activeByKey = new Map<string, string>();
+
+export function registerActive(key: string, jobId: string): void {
+  activeByKey.set(key, jobId);
+}
+
+export function getActiveJob(key: string): string | null {
+  const jobId = activeByKey.get(key);
+  if (!jobId) return null;
+  if (jobs.get(jobId)?.status !== "running") {
+    activeByKey.delete(key);
+    return null;
+  }
+  return jobId;
+}
+
 export function createJob(id: string): void {
   jobs.set(id, { id, status: "running", events: [], listeners: new Set() });
 }
@@ -43,6 +60,9 @@ function finish(id: string, status: "done" | "failed", data: unknown) {
   if (!job) return;
   job.status = status;
   emit(id, status, data);
+  for (const [key, jobId] of activeByKey) {
+    if (jobId === id) activeByKey.delete(key);
+  }
   setTimeout(() => jobs.delete(id), CLEANUP_DELAY_MS).unref?.();
 }
 

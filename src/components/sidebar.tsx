@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { MagnifyingGlass, Books, Columns, UploadSimple, SidebarSimple, BookOpen, Medal, GearSix, Scales } from "@phosphor-icons/react";
+import { MagnifyingGlass, Books, Columns, UploadSimple, SidebarSimple, BookOpen, Medal, GearSix, Scales, SquaresFour, Graph } from "@phosphor-icons/react";
 import { ZoteroImportDialog } from "@/components/zotero-import";
 
 interface SidebarPaper {
@@ -107,13 +107,21 @@ export function Sidebar() {
         </button>
       </div>
 
-      <SidebarLink href="/" active={pathname === "/"}>
+      <SidebarLink href="/dashboard" active={pathname === "/dashboard"}>
+        <SquaresFour size={16} className="shrink-0 text-slate" />
+        <span className="text-sm font-medium">儀表板</span>
+      </SidebarLink>
+      <SidebarLink href="/search" active={pathname === "/search"}>
         <MagnifyingGlass size={16} className="shrink-0 text-slate" />
         <span className="text-sm font-medium">搜尋文獻</span>
       </SidebarLink>
       <SidebarLink href="/journals" active={pathname === "/journals"}>
         <Medal size={16} className="shrink-0 text-slate" />
         <span className="text-sm font-medium">期刊分級</span>
+      </SidebarLink>
+      <SidebarLink href="/graph" active={pathname === "/graph"}>
+        <Graph size={16} className="shrink-0 text-slate" />
+        <span className="text-sm font-medium">關係圖譜</span>
       </SidebarLink>
 
       <div className="mt-4">

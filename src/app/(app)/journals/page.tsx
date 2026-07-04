@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { RankBadge, type RankInfo } from "@/components/rank-badge";
 
 interface JournalHit {
@@ -22,15 +23,24 @@ const TYPE_LABEL: Record<string, string> = {
 };
 
 export default function JournalsPage() {
-  const [query, setQuery] = useState("");
+  return (
+    <Suspense fallback={null}>
+      <JournalsInner />
+    </Suspense>
+  );
+}
+
+function JournalsInner() {
+  const searchParams = useSearchParams();
+  const initialQ = searchParams.get("q") ?? "";
+  const [query, setQuery] = useState(initialQ);
   const [hits, setHits] = useState<JournalHit[] | null>(null);
   const [rankingsLoaded, setRankingsLoaded] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleSearch(e: React.FormEvent) {
-    e.preventDefault();
-    const q = query.trim();
+  async function search(raw: string) {
+    const q = raw.trim();
     if (!q) return;
 
     setLoading(true);
@@ -48,6 +58,19 @@ export default function JournalsPage() {
       setLoading(false);
     }
   }
+
+  async function handleSearch(e: React.FormEvent) {
+    e.preventDefault();
+    await search(query);
+  }
+
+  // 帶 ?q= 進來（例如 ⌘K 期刊快查）時自動查一次
+  const didInit = useRef(false);
+  useEffect(() => {
+    if (didInit.current || !initialQ) return;
+    didInit.current = true;
+    void search(initialQ);
+  }, [initialQ]);
 
   return (
     <div className="mx-auto w-full max-w-[720px] px-8 pb-24 pt-10">

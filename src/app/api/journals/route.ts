@@ -21,10 +21,26 @@ export interface JournalHit {
   rank: { sjrQuartile: string | null; coreRank: string | null } | null;
 }
 
-/** 期刊/會議查詢：OpenAlex sources 搜尋掛上本地 SJR/CORE 分級；OpenAlex 失敗時退回純本地資料。 */
+/** 期刊/會議查詢：OpenAlex sources 搜尋掛上本地 SJR/CORE 分級；OpenAlex 失敗時退回純本地資料。
+ *  帶 local=1 時只查本地分級表（⌘K 快查用，逐字打字不打外部 API）。 */
 export async function GET(req: NextRequest) {
-  const q = new URL(req.url).searchParams.get("q")?.trim();
+  const url = new URL(req.url);
+  const q = url.searchParams.get("q")?.trim();
   if (!q) return NextResponse.json({ error: "q 為必填" }, { status: 400 });
+
+  if (url.searchParams.get("local") === "1") {
+    const hits: JournalHit[] = searchJournalRanks(q, 6).map((r) => ({
+      name: r.title,
+      issn: r.issn,
+      type: r.kind,
+      publisher: null,
+      worksCount: null,
+      hIndex: null,
+      twoYearCitedness: null,
+      rank: { sjrQuartile: r.sjrQuartile, coreRank: r.coreRank },
+    }));
+    return NextResponse.json({ hits, rankingsLoaded: rankingsAvailable(), source: "local" });
+  }
 
   const email = process.env.CONTACT_EMAIL;
   const mailto = email ? `&mailto=${encodeURIComponent(email)}` : "";

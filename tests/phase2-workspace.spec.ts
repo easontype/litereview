@@ -3,7 +3,7 @@ import { test, expect } from "@playwright/test";
 const BASE_URL = process.env.LR_BASE_URL ?? "http://localhost:3010";
 
 test("搜尋頁加入工作區 → 工作區頁顯示 → 移除 → 重新加入（還原狀態）", async ({ page }) => {
-  await page.goto(BASE_URL);
+  await page.goto(`${BASE_URL}/search`);
 
   const searchInput = page.getByPlaceholder(/transformer attention/);
   await searchInput.fill("1706.03762");

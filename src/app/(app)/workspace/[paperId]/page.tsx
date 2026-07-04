@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { use, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ZoteroWritebackButton } from "@/components/zotero-writeback";
 import { RankBadge, type RankInfo } from "@/components/rank-badge";
@@ -70,25 +70,75 @@ export default function PaperPage({ params }: { params: Promise<{ paperId: strin
   const [paper, setPaper] = useState<WorkspaceItem | null>(null);
   const [status, setStatus] = useState<"loading" | "analyzing" | "done" | "failed">("loading");
   const [error, setError] = useState<string | null>(null);
+  const [stageMsg, setStageMsg] = useState<string | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+  const esRef = useRef<EventSource | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  function stopWatch() {
+    esRef.current?.close();
+    esRef.current = null;
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  }
+
+  /** 掛上 job 的 SSE：階段事件更新進度文字，done 直接帶回 keypoints。 */
+  function watchJob(jobId: string) {
+    stopWatch();
+    setStatus("analyzing");
+    setError(null);
+    setStageMsg(null);
+    const startAt = Date.now();
+    setElapsed(0);
+    timerRef.current = setInterval(() => setElapsed(Math.floor((Date.now() - startAt) / 1000)), 1000);
+    const es = new EventSource(`/api/jobs/${jobId}/events`);
+    esRef.current = es;
+    es.onmessage = (msg) => {
+      const event = JSON.parse(msg.data) as { type: string; data: unknown };
+      if (event.type === "stage") {
+        setStageMsg((event.data as { message: string }).message);
+      } else if (event.type === "done") {
+        stopWatch();
+        setKeypoints((event.data as { keypoints: KeypointsData }).keypoints);
+        setStatus("done");
+        window.dispatchEvent(new Event("lr:refresh"));
+      } else if (event.type === "failed") {
+        stopWatch();
+        setError((event.data as { error: string }).error);
+        setStatus("failed");
+      }
+    };
+    es.onerror = () => {
+      // job 已不在（如 server 重啟）：退回查 DB 現況
+      stopWatch();
+      fetch(`/api/keypoints/${paperId}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((json) => {
+          if (json?.keypoints) {
+            setKeypoints(json.keypoints);
+            setStatus("done");
+          } else {
+            setError("進度連線中斷，請重試");
+            setStatus("failed");
+          }
+        });
+    };
+  }
 
   async function runAnalysis(forceRefresh: boolean) {
     setStatus("analyzing");
     setError(null);
     try {
-      const res = await fetch(`/api/keypoints/${paperId}`, {
+      const res = await fetch(`/api/keypoints/${paperId}/job`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ forceRefresh }),
       });
       const json = await res.json();
-      if (json.status === "done") {
-        setKeypoints(json.keypoints);
-        setStatus("done");
-        window.dispatchEvent(new Event("lr:refresh"));
-      } else {
-        setError(json.error ?? "分析失敗");
-        setStatus("failed");
-      }
+      if (!res.ok || !json.jobId) throw new Error(json.error ?? "啟動分析失敗");
+      watchJob(json.jobId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "分析失敗");
       setStatus("failed");
@@ -106,17 +156,22 @@ export default function PaperPage({ params }: { params: Promise<{ paperId: strin
       });
     fetch(`/api/keypoints/${paperId}`)
       .then((res) => (res.ok ? res.json() : null))
-      .then((json) => {
+      .then(async (json) => {
         if (ignore) return;
         if (json?.keypoints) {
           setKeypoints(json.keypoints);
           setStatus("done");
-        } else {
-          runAnalysis(false);
+          return;
         }
+        // 沒有結果：先看有沒有進行中的 job（例如從 ⌘K 發起、或重整頁面），有就掛回去
+        const jobRes = await fetch(`/api/keypoints/${paperId}/job`).then((r) => r.json()).catch(() => null);
+        if (ignore) return;
+        if (jobRes?.jobId) watchJob(jobRes.jobId);
+        else runAnalysis(false);
       });
     return () => {
       ignore = true;
+      stopWatch();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paperId]);
@@ -154,6 +209,8 @@ export default function PaperPage({ params }: { params: Promise<{ paperId: strin
           keypoints={keypoints}
           status={status}
           error={error}
+          stageMsg={stageMsg}
+          elapsed={elapsed}
           onRerun={() => runAnalysis(true)}
         />
       )}
@@ -194,6 +251,8 @@ function KeypointsTab({
   keypoints,
   status,
   error,
+  stageMsg,
+  elapsed,
   onRerun,
 }: {
   paperId: string;
@@ -201,16 +260,42 @@ function KeypointsTab({
   keypoints: KeypointsData | null;
   status: "loading" | "analyzing" | "done" | "failed";
   error: string | null;
+  stageMsg: string | null;
+  elapsed: number;
   onRerun: () => void;
 }) {
+  const STAGES = ["抓取全文", "LLM 分析", "完成"];
+  const stageIndex = stageMsg?.startsWith("分析中") ? 1 : 0;
   return (
     <>
       {status === "loading" && <p className="mt-8 text-sm text-steel">載入中…</p>}
 
       {status === "analyzing" && (
-        <div className="mt-8 flex items-center gap-2.5 text-sm text-slate">
-          <span className="h-2 w-2 animate-pulse rounded-full bg-warning" />
-          分析中，全文擷取＋LLM 分析可能需要數分鐘，請稍候…
+        <div className="mt-8">
+          <div className="flex items-center gap-2.5 text-sm text-slate">
+            <span className="h-2 w-2 animate-pulse rounded-full bg-warning" />
+            {stageMsg ?? "排隊中…"}
+            <span className="font-mono text-[11px] text-steel">已耗時 {elapsed}s</span>
+          </div>
+          <div className="mt-4 flex items-center gap-2">
+            {STAGES.map((s, i) => (
+              <span key={s} className="flex items-center gap-2">
+                <span
+                  className={`rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${
+                    i < stageIndex
+                      ? "border-success/40 text-success"
+                      : i === stageIndex
+                        ? "border-primary text-primary"
+                        : "border-hairline text-steel"
+                  }`}
+                >
+                  {s}
+                </span>
+                {i < STAGES.length - 1 && <span className="h-px w-5 bg-hairline-strong" />}
+              </span>
+            ))}
+          </div>
+          <p className="mt-3 text-[12.5px] text-steel">全文擷取＋LLM 分析可能需要數分鐘，可先離開此頁，回來會自動接上進度。</p>
         </div>
       )}
 

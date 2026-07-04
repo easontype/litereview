@@ -6,7 +6,7 @@ test("搜尋頁：側邊欄 + arXiv ID 搜尋 + 加入工作區 + 導覽切換",
   const pageErrors: string[] = [];
   page.on("pageerror", (err) => pageErrors.push(err.message));
 
-  await page.goto(BASE_URL);
+  await page.goto(`${BASE_URL}/search`);
 
   await expect(page.getByText("litereview", { exact: true })).toBeVisible();
   const searchLink = page.getByRole("link", { name: "搜尋文獻" });

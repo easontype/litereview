@@ -40,11 +40,34 @@ export async function runDebate(
     }
 
     const transcript: DebateTurn[] = [];
+
+    /** 有 chatStream 就逐字 emit token 事件（UI 即時長字），否則退回一次拿完。 */
+    const generate = async (
+      seat: ReturnType<typeof resolveSeat>,
+      prompt: string,
+      tokenMeta: Record<string, unknown>
+    ): Promise<string> => {
+      if (seat.provider.chatStream) {
+        let acc = "";
+        for await (const chunk of seat.provider.chatStream(prompt, { model: seat.model })) {
+          acc += chunk;
+          emit(debateId, "token", { ...tokenMeta, text: chunk });
+        }
+        return acc.trim();
+      }
+      return (await seat.provider.chat(prompt, { model: seat.model })).trim();
+    };
+
     const speak = async (role: DebateRole, phase: DebatePhase, round?: number) => {
       const seat = resolveSeat(role);
       const seatInfo = `${seat.provider.label} · ${seat.model}`;
       const prompt = buildSpeechPrompt(motion, papers, transcript, role, phase);
-      const content = (await seat.provider.chat(prompt, { model: seat.model })).trim();
+      const content = await generate(seat, prompt, {
+        role,
+        phase,
+        ...(round ? { round } : {}),
+        seatInfo,
+      });
       const turn: DebateTurn = { role, phase, ...(round ? { round } : {}), seatInfo, content };
       transcript.push(turn);
       updateDebateTranscript(debateId, transcript);
@@ -63,8 +86,9 @@ export async function runDebate(
     emit(debateId, "stage", { message: "裁判評議中…" });
     const judge = resolveSeat("judge");
     const judgeInfo = `${judge.provider.label} · ${judge.model}`;
-    const raw = await judge.provider.chat(buildVerdictPrompt(motion, transcript), {
-      model: judge.model,
+    const raw = await generate(judge, buildVerdictPrompt(motion, transcript), {
+      role: "judge",
+      seatInfo: judgeInfo,
     });
     const verdict = parseVerdictResponse(raw, judgeInfo);
 

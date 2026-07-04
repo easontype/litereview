@@ -35,6 +35,8 @@ export default function DebateDetailPage({ params }: { params: Promise<{ id: str
   const { id } = use(params);
   const [meta, setMeta] = useState<DebateMeta | null>(null);
   const [turns, setTurns] = useState<DebateTurn[]>([]);
+  const [live, setLive] = useState<DebateTurn | null>(null);
+  const [judgeLive, setJudgeLive] = useState("");
   const [verdict, setVerdict] = useState<DebateVerdict | null>(null);
   const [stage, setStage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -73,10 +75,25 @@ export default function DebateDetailPage({ params }: { params: Promise<{ id: str
           const event = JSON.parse(msg.data) as { type: string; data: unknown };
           if (event.type === "stage") {
             setStage((event.data as { message: string }).message);
+          } else if (event.type === "token") {
+            // 逐字串流：正反方 token 疊進進行中氣泡；裁判 token 進評議區
+            const tok = event.data as DebateTurn & { text: string };
+            setStage(null);
+            if ((tok.role as string) === "judge") {
+              setJudgeLive((prev) => prev + tok.text);
+            } else {
+              setLive((prev) =>
+                prev && prev.role === tok.role && prev.phase === tok.phase && prev.round === tok.round
+                  ? { ...prev, content: prev.content + tok.text }
+                  : { role: tok.role, phase: tok.phase, round: tok.round, seatInfo: tok.seatInfo, content: tok.text }
+              );
+            }
           } else if (event.type === "turn") {
             setStage(null);
+            setLive(null);
             setTurns((prev) => [...prev, event.data as DebateTurn]);
           } else if (event.type === "verdict") {
+            setJudgeLive("");
             setVerdict(event.data as DebateVerdict);
           } else if (event.type === "done") {
             setStage(null);
@@ -177,8 +194,51 @@ export default function DebateDetailPage({ params }: { params: Promise<{ id: str
         })}
       </div>
 
+      {/* ── 逐字串流中的發言氣泡 ── */}
+      {live && (
+        <div className={`mt-5 flex ${live.role === "proponent" ? "justify-start" : "justify-end"}`}>
+          <div className={`max-w-[85%] ${live.role === "proponent" ? "" : "text-right"}`}>
+            <div
+              className={`mb-1.5 flex items-baseline gap-2 text-[11px] ${
+                live.role === "proponent" ? "" : "flex-row-reverse"
+              }`}
+            >
+              <span className={`font-semibold ${live.role === "proponent" ? "text-primary" : "text-slate"}`}>
+                {ROLE_LABEL[live.role]} · {PHASE_LABEL[live.phase]}
+                {live.round ? ` 第 ${live.round} 輪` : ""}
+              </span>
+              <span className="font-mono text-[10px] text-steel">{live.seatInfo}</span>
+            </div>
+            <div
+              className={`rounded-lg px-4.5 py-3.5 text-left text-[13.5px] leading-[1.7] ${
+                live.role === "proponent"
+                  ? "rounded-tl-sm bg-primary-tint"
+                  : "rounded-tr-sm border border-hairline bg-surface"
+              }`}
+            >
+              {live.content.split("\n").map((line, j) => (
+                <p key={j} className={j > 0 ? "mt-1.5" : ""}>
+                  {line}
+                  {j === live.content.split("\n").length - 1 && (
+                    <span className="ml-0.5 inline-block h-[13px] w-[2px] animate-pulse bg-primary align-[-2px]" />
+                  )}
+                </p>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── 裁判評議逐字串流 ── */}
+      {judgeLive && !verdict && (
+        <div className="mt-6 max-h-40 overflow-hidden rounded-md border border-hairline bg-surface px-4 py-3">
+          <p className="mb-1.5 font-mono text-[10px] uppercase tracking-[0.08em] text-steel">裁判評議中</p>
+          <p className="whitespace-pre-wrap font-mono text-[11px] leading-[1.6] text-slate">{judgeLive}</p>
+        </div>
+      )}
+
       {/* ── 進行中指示 ── */}
-      {meta.status === "running" && (
+      {meta.status === "running" && !live && !judgeLive && (
         <div className="mt-6 flex items-center gap-2.5 text-sm text-slate">
           <span className="h-2 w-2 animate-pulse rounded-full bg-warning" />
           {stage ?? "辯手發言中…"}

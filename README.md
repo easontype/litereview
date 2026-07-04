@@ -8,10 +8,16 @@
 - **審查**：以審查委員視角給出五維評分 scorecard（方法嚴謹度／證據強度／新穎性／可重現性／清晰度）、優缺點清單，以及可供辯論的爭點。
 - **辯論**：給定一個爭點（可從審查結果一鍵帶入），讓正反方模型針對論文證據多輪攻防，最後由裁判模型評分判決；逐字稿透過 SSE 即時呈現。
 - **Zotero 整合**：從本機 Zotero 7 的 collection 匯入條目到工作區，分析完成後可把重點筆記回寫成 Zotero 子筆記。
+- **儀表板**：工作區統計（論文數／已分析／審查／比較／辯論）、年份分佈長條圖、最近活動時間軸與快捷動作。
+- **關係圖譜**：把工作區論文畫成力導向圖（d3-force），邊代表「比較過／辯論過／共同作者」，節點大小反映被引數、顏色反映分析狀態；拖曳、hover 資訊卡、點擊進論文頁。
+- **⌘K 指令面板**：`Ctrl/⌘+K` 隨處喚起——跳頁、模糊搜尋工作區論文、直接對論文發起找重點、快查期刊分級。
+- **即時串流**：找重點／比較以背景 job 執行，SSE 回報階段進度（抓全文→LLM 分析→完成）與耗時，離開頁面再回來會自動接上進行中的 job；辯論逐字稿逐 token 即時顯示。
 
 ## 技術棧
 
-Next.js 16（App Router）+ TypeScript + Tailwind CSS v4，`better-sqlite3` 本機資料庫，`@phosphor-icons/react` 提供側邊欄圖示。
+Next.js 16（App Router）+ TypeScript + Tailwind CSS v4，`better-sqlite3` 本機資料庫，`@phosphor-icons/react` 提供側邊欄圖示，`cmdk` 驅動指令面板，`d3-force` 負責關係圖譜的力學模擬（SVG 自繪）。
+
+路由分兩個 route group：`/`（marketing）是靜態商品介紹頁，`(app)` 群組（`/dashboard`、`/search`、`/workspace`、`/compare`、`/debate`、`/journals`、`/graph`、`/settings`）才是側邊欄 App Shell。
 
 LLM 呼叫走可調配的 adapter 層：預設 provider 是 `claude -p` CLI subprocess，用你本機 Claude Code 訂閱的登入 token，**不吃 `ANTHROPIC_API_KEY`、不額外計費**；也可在設定中心加入 OpenAI、Google Gemini、Anthropic API，或任何 OpenAI 相容端點（DeepSeek／Groq／本機 Ollama…）。
 
@@ -46,6 +52,7 @@ npm run dev
 
 ## 使用流程
 
+0. 首頁 `/` 是商品介紹頁，按「進入工作台」到儀表板；app 內任何地方按 `Ctrl/⌘+K` 都能開指令面板快速跳頁或搜尋論文
 1. 左側邊欄「搜尋文獻」輸入關鍵字／arXiv ID／DOI → 對想追蹤的論文按「加入工作區」；找不到線上索引的論文也可以在「工作區」頁直接上傳 PDF 加入（側邊欄底部也有捷徑）
 2. 到「工作區」頁，對任一篇論文按「找重點」→ 系統抓全文並跑深度分析（有全文的情況下通常 1–2 分鐘內完成）；側邊欄的論文清單會即時顯示分析狀態（綠點＝已分析、琥珀空心＝僅摘要、灰空心＝未分析）
 3. 在「工作區」頁勾選 2–6 篇**已分析**的論文，畫面下方會浮出「比較」按鈕 → 執行比較取得五維度表格 + 綜合結論；歷史紀錄在側邊欄「比較」區塊

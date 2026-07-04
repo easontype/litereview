@@ -7,6 +7,17 @@ import type { LlmProvider, ProviderConfig } from "@/lib/llm/types";
  * 改 prompt schema 時記得同步這裡。
  */
 export function createMockProvider(config: ProviderConfig): LlmProvider {
+  function answer(prompt: string): string {
+    if (prompt.includes('"motions"')) return mockReview();
+    if (prompt.includes('"winner"')) return mockVerdict();
+    if (prompt.includes('"verdict"') && prompt.includes("陣列長度需等於")) {
+      const m = /陣列長度需等於 (\d+)/.exec(prompt);
+      return mockCompare(Number(m?.[1] ?? 2));
+    }
+    if (prompt.includes('"research_question"')) return mockKeypoints();
+    return "【mock】這是模擬的辯論發言：基於論文提供的證據，我方立場成立。理由一，實驗設計涵蓋了主要變因；理由二，對照組結果一致；理由三，效應量在多個資料集上穩定。";
+  }
+
   return {
     id: config.id,
     kind: "mock",
@@ -14,15 +25,20 @@ export function createMockProvider(config: ProviderConfig): LlmProvider {
     async chat(prompt) {
       // 模擬一點延遲，讓 UI 的進行中狀態可被觀察/測試
       await new Promise((r) => setTimeout(r, 150));
-
-      if (prompt.includes('"motions"')) return mockReview();
-      if (prompt.includes('"winner"')) return mockVerdict();
-      if (prompt.includes('"verdict"') && prompt.includes("陣列長度需等於")) {
-        const m = /陣列長度需等於 (\d+)/.exec(prompt);
-        return mockCompare(Number(m?.[1] ?? 2));
-      }
-      if (prompt.includes('"research_question"')) return mockKeypoints();
-      return "【mock】這是模擬的辯論發言：基於論文提供的證據，我方立場成立。理由一，實驗設計涵蓋了主要變因；理由二，對照組結果一致；理由三，效應量在多個資料集上穩定。";
+      return answer(prompt);
+    },
+    chatStream(prompt) {
+      // 逐字串流版：切小塊帶延遲吐出，供 e2e 驗證 token 級 SSE 流程
+      return {
+        async *[Symbol.asyncIterator]() {
+          const full = answer(prompt);
+          const step = 6;
+          for (let i = 0; i < full.length; i += step) {
+            await new Promise((r) => setTimeout(r, 12));
+            yield full.slice(i, i + step);
+          }
+        },
+      };
     },
   };
 }

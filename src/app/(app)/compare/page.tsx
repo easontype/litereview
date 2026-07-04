@@ -55,6 +55,8 @@ function CompareInner() {
   );
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<CompareResult | null>(null);
+  const [stageMsg, setStageMsg] = useState<string | null>(null);
+  const [elapsed, setElapsed] = useState(0);
 
   // searchParams 變化時在 render 期間同步調整狀態（React 官方建議模式，避免 effect 內 setState）
   const [prevQuery, setPrevQuery] = useState({ historyId, presetIds });
@@ -113,22 +115,49 @@ function CompareInner() {
   async function runCompare() {
     setStatus("comparing");
     setError(null);
+    setStageMsg(null);
     try {
-      const res = await fetch("/api/compare", {
+      const res = await fetch("/api/compare/job", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ paperIds: selected }),
       });
       const json = await res.json();
-      if (!res.ok) {
+      if (!res.ok || !json.jobId) {
         setError(json.error ?? "比較失敗");
         setStatus("failed");
         return;
       }
-      setResult(json);
-      setStatus("done");
-      window.dispatchEvent(new Event("lr:refresh"));
-      router.replace(`/compare?id=${json.id}`);
+
+      // SSE 跟進度：階段訊息 + 已耗時；done 事件帶 compareId 後跳結果頁
+      const startAt = Date.now();
+      setElapsed(0);
+      const timer = setInterval(() => setElapsed(Math.floor((Date.now() - startAt) / 1000)), 1000);
+      const es = new EventSource(`/api/jobs/${json.jobId}/events`);
+      const cleanup = () => {
+        clearInterval(timer);
+        es.close();
+      };
+      es.onmessage = (msg) => {
+        const event = JSON.parse(msg.data) as { type: string; data: unknown };
+        if (event.type === "stage") {
+          setStageMsg((event.data as { message: string }).message);
+        } else if (event.type === "done") {
+          cleanup();
+          const { compareId } = event.data as { compareId: string };
+          window.dispatchEvent(new Event("lr:refresh"));
+          router.replace(`/compare?id=${compareId}`);
+        } else if (event.type === "failed") {
+          cleanup();
+          setError((event.data as { error: string }).error);
+          setStatus("failed");
+        }
+      };
+      es.onerror = () => {
+        cleanup();
+        setError("進度連線中斷，請重試");
+        setStatus("failed");
+      };
     } catch (err) {
       setError(err instanceof Error ? err.message : "比較失敗");
       setStatus("failed");
@@ -246,8 +275,15 @@ function CompareInner() {
           </button>
           <span className="text-xs text-steel">
             已選 {selected.length} / 6 篇（最少 2 篇）
-            {status === "comparing" && " · 未分析的論文會先自動跑「找重點」，需要幾分鐘"}
           </span>
+        </div>
+      )}
+
+      {status === "comparing" && (
+        <div className="mt-5 flex items-center gap-2.5 text-sm text-slate">
+          <span className="h-2 w-2 animate-pulse rounded-full bg-warning" />
+          {stageMsg ?? "排隊中…"}
+          <span className="font-mono text-[11px] text-steel">已耗時 {elapsed}s</span>
         </div>
       )}
 
