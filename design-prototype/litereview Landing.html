@@ -1,0 +1,1141 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>litereview — 替每一篇論文，留下硃批</title>
+<meta name="description" content="搜尋、找重點、比較、辯論——本機優先的個人文獻研究工具。開源 MIT。">
+<!--
+  ══ 原型 v2（design-prototype，非產線程式碼）══
+  方向：「硃批」編輯排印風 — 米白紙面 + 墨黑 + 硃砂紅。
+        取意傳統校讎的硃筆圈點：litereview 做的事就是替你硃批論文。
+        與 app 內部（DESIGN.md Notion 白/藍）刻意反差 — 進站是「書齋」，進工作台是「工具」。
+  字體：Noto Serif TC（display）/ Noto Sans TC（body）/ IBM Plex Mono（標記、數據）。
+  動態清單（全部 transform/opacity/stroke，60fps；prefers-reduced-motion 全數停用）：
+    · 全頁紙紋（feTurbulence data-URI，fixed overlay）
+    · 頂部硃紅閱讀進度線
+    · hero：進場 stagger、硃批動畫 14s 迴圈、滑鼠 3D 傾斜視差、標題手繪硃圈（SVG stroke draw）
+    · 生態系跑馬燈（三資料庫 + 模型供應商 + Zotero/SQLite/MIT）
+    · 滾動 reveal（IntersectionObserver）+ 區塊幽靈數字編號
+    · 辯論區：SSE 風格逐字串流打字 + 裁判分數條動畫（進視野觸發一次）
+    · 磁吸按鈕、自訂硃點游標（pointer:fine 限定）
+    · 尾聲「閱訖」硃印 戳章動畫
+  假設：CTA「進入工作台」實作時連 /dashboard；GitHub 連 github.com/easontype/litereview。
+-->
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@500;600;700;900&family=Noto+Sans+TC:wght@400;500;700&family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&display=swap');
+
+:root {
+  --paper:      #f6f1e7;
+  --paper-deep: #ede5d4;
+  --card:       #fdfbf5;
+  --ink:        #211d16;
+  --ink-2:      #5c5546;
+  --ink-3:      #8f8776;
+  --line:       #ddd3bf;
+  --line-soft:  #e8e0cf;
+  --verm:       #bf3b1b;
+  --verm-deep:  #992d10;
+  --night:      #1d1913;
+  --night-2:    #2a251c;
+  --cream:      #f0e9da;
+  --serif: "Noto Serif TC", "Songti TC", serif;
+  --sans:  "Noto Sans TC", "PingFang TC", sans-serif;
+  --mono:  "IBM Plex Mono", ui-monospace, monospace;
+  --ease:  cubic-bezier(.22,.8,.32,1);
+  --ease-pop: cubic-bezier(.34,1.56,.64,1);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: var(--sans);
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1.75;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+::selection { background: var(--verm); color: var(--cream); }
+body.fine-cursor, body.fine-cursor a, body.fine-cursor button { cursor: none; }
+
+/* ── 紙紋（feTurbulence）──────────────────── */
+body::after {
+  content: ""; position: fixed; inset: 0; z-index: 96; pointer-events: none;
+  mix-blend-mode: multiply; opacity: .55;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='280' height='280'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncA type='linear' slope='0.055'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='280' height='280' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* ── 自訂游標 ─────────────────────────────── */
+.cursor-dot, .cursor-ring {
+  position: fixed; top: 0; left: 0; z-index: 99; pointer-events: none;
+  border-radius: 50%; display: none; opacity: 0; transition: opacity .3s;
+}
+body.fine-cursor .cursor-dot, body.fine-cursor .cursor-ring { display: block; }
+body.cursor-live .cursor-dot, body.cursor-live .cursor-ring { opacity: 1; }
+.cursor-dot { width: 7px; height: 7px; background: var(--verm); margin: -3.5px 0 0 -3.5px; }
+.cursor-ring {
+  width: 34px; height: 34px; margin: -17px 0 0 -17px;
+  border: 1.5px solid rgba(191,59,27,.55);
+  transition: border-color .25s;
+}
+.cursor-ring.on { border-color: rgba(191,59,27,.9); }
+
+/* ── 閱讀進度線 ───────────────────────────── */
+.progress {
+  position: fixed; top: 0; left: 0; right: 0; height: 2.5px; z-index: 98;
+  background: var(--verm); transform-origin: 0 50%; transform: scaleX(0);
+}
+
+/* ── 着重號（硃點）───────────────────────── */
+.emph {
+  -webkit-text-emphasis: filled circle var(--verm);
+  text-emphasis: filled circle var(--verm);
+  -webkit-text-emphasis-position: under right;
+  text-emphasis-position: under right;
+}
+
+/* ── Nav ─────────────────────────────────── */
+nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 50;
+  transition: background .35s, box-shadow .35s;
+}
+nav.scrolled {
+  background: rgba(246,241,231,.88);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 1px 0 var(--line);
+}
+.nav-inner {
+  max-width: 1180px; margin: 0 auto; padding: 18px 40px;
+  display: flex; align-items: center; gap: 32px;
+}
+.wordmark {
+  font-family: var(--serif); font-weight: 700; font-size: 21px;
+  color: var(--ink); text-decoration: none; letter-spacing: .01em;
+}
+.wordmark .dot { color: var(--verm); }
+.nav-links { display: flex; gap: 28px; margin-left: auto; align-items: center; }
+.nav-links a:not(.btn) {
+  color: var(--ink-2); text-decoration: none; font-size: 14px; font-weight: 500;
+  position: relative; transition: color .2s;
+}
+.nav-links a:not(.btn)::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -5px; height: 1.5px;
+  background: var(--verm); transform: scaleX(0); transform-origin: 0 50%;
+  transition: transform .3s var(--ease);
+}
+.nav-links a:not(.btn):hover { color: var(--verm); }
+.nav-links a:not(.btn):hover::after { transform: scaleX(1); }
+
+.btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-family: var(--sans); font-size: 15px; font-weight: 500;
+  padding: 11px 24px; border-radius: 4px; text-decoration: none;
+  transition: background .25s, color .25s, box-shadow .25s, border-color .25s;
+  cursor: pointer; border: none; will-change: transform;
+}
+.btn-primary { background: var(--ink); color: var(--cream); }
+.btn-primary:hover { background: var(--verm); box-shadow: 0 8px 22px rgba(191,59,27,.28); }
+.btn-ghost { border: 1px solid var(--line); color: var(--ink); background: transparent; }
+.btn-ghost:hover { border-color: var(--verm); color: var(--verm); }
+.btn-sm { font-size: 14px; padding: 8px 18px; }
+
+.wrap { max-width: 1180px; margin: 0 auto; padding: 0 40px; }
+
+/* ── Hero ────────────────────────────────── */
+.hero { position: relative; padding: 178px 0 96px; overflow: hidden; }
+.hero-grid {
+  display: grid; grid-template-columns: 1.02fr .98fr; gap: 64px; align-items: center;
+  position: relative; z-index: 2;
+}
+.kicker {
+  font-family: var(--mono); font-size: 12px; letter-spacing: .22em;
+  color: var(--verm); text-transform: uppercase; margin-bottom: 24px;
+  display: flex; align-items: center; gap: 12px;
+}
+.kicker::before { content: ""; width: 36px; height: 1px; background: var(--verm); }
+h1 {
+  font-family: var(--serif); font-weight: 900;
+  font-size: clamp(46px, 5vw, 72px);
+  line-height: 1.24; letter-spacing: .01em; margin-bottom: 28px;
+}
+.circled { position: relative; display: inline-block; color: var(--verm); }
+.circled svg {
+  position: absolute; inset: -16% -12% -20% -14%; width: 126%; height: 140%;
+  overflow: visible; pointer-events: none;
+}
+.circled svg path {
+  fill: none; stroke: var(--verm); stroke-width: 3.2; stroke-linecap: round;
+  stroke-dasharray: 560; stroke-dashoffset: 560; opacity: .85;
+  animation: drawCircle 1.1s var(--ease) 1.15s forwards;
+}
+@keyframes drawCircle { to { stroke-dashoffset: 0; } }
+.hero-sub {
+  font-size: 17px; color: var(--ink-2); max-width: 30em; margin-bottom: 40px;
+}
+.hero-sub strong { color: var(--ink); font-weight: 700; }
+.hero-ctas { display: flex; gap: 14px; align-items: center; }
+.hero-note {
+  margin-top: 28px; font-family: var(--mono); font-size: 12px; color: var(--ink-3);
+  letter-spacing: .04em;
+}
+.hero-note em { color: var(--verm); font-style: normal; }
+
+/* hero 背景層：幽靈字 + 漂浮引註 */
+.hero-ghost {
+  position: absolute; z-index: 1; user-select: none; pointer-events: none;
+  font-family: var(--serif); font-weight: 900; color: var(--ink);
+}
+.ghost-char { font-size: 460px; line-height: 1; opacity: .035; left: -110px; bottom: -140px; }
+.float-cite {
+  position: absolute; z-index: 1; font-family: var(--mono); font-size: 13px;
+  color: var(--verm); opacity: .3; pointer-events: none; user-select: none;
+  animation: drift 7s ease-in-out infinite alternate;
+}
+.float-cite.f2 { animation-duration: 9s; animation-delay: -3s; }
+.float-cite.f3 { animation-duration: 8s; animation-delay: -5s; }
+@keyframes drift { from { transform: translateY(-9px); } to { transform: translateY(9px); } }
+
+/* 直排側標 */
+.side-label {
+  position: absolute; right: 34px; top: 200px; z-index: 3;
+  writing-mode: vertical-rl;
+  font-family: var(--mono); font-size: 11px; letter-spacing: .5em;
+  color: var(--ink-3); opacity: .75; user-select: none;
+}
+.side-label::before {
+  content: ""; display: block; width: 1px; height: 56px;
+  background: var(--verm); margin: 0 auto 18px;
+}
+
+/* hero 進場 */
+.hero-enter { opacity: 0; transform: translateY(28px); animation: heroIn 1s var(--ease) forwards; }
+.hero-enter.d1 { animation-delay: .08s; }
+.hero-enter.d2 { animation-delay: .2s; }
+.hero-enter.d3 { animation-delay: .34s; }
+.hero-enter.d4 { animation-delay: .5s; }
+@keyframes heroIn { to { opacity: 1; transform: none; } }
+
+/* ── Hero 硃批動畫（14s 迴圈 + 滑鼠傾斜）───── */
+.tilt-wrap { will-change: transform; }
+.anno-stage { position: relative; padding-right: 118px; }
+.sheet {
+  position: relative;
+  background: var(--card);
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  padding: 30px 30px 26px;
+  box-shadow: 0 2px 6px rgba(40,30,10,.05), 0 24px 60px rgba(40,30,10,.12);
+  transform: rotate(-.7deg);
+}
+.sheet-title {
+  font-family: var(--serif); font-weight: 700; font-size: 16.5px;
+  line-height: 1.4; color: var(--ink); margin-bottom: 5px;
+}
+.sheet-authors {
+  font-family: var(--mono); font-size: 9.5px; color: var(--ink-3);
+  letter-spacing: .03em; margin-bottom: 16px;
+}
+.sheet-abs {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 11.8px; line-height: 1.72; color: #46413a;
+  text-align: justify; hyphens: auto;
+}
+.sheet-abs .hl {
+  background-image: linear-gradient(transparent 62%, rgba(191,59,27,.32) 62%, rgba(191,59,27,.32) 94%, transparent 94%);
+  background-repeat: no-repeat; background-size: 0% 100%;
+}
+.sheet-abs .hl1 { animation: sweep1 14s linear infinite; }
+.sheet-abs .hl2 { animation: sweep2 14s linear infinite; }
+.sheet-abs .hl3 { animation: sweep3 14s linear infinite; }
+@keyframes sweep1 { 0%,4%  { background-size: 0% 100%; } 11%,93% { background-size: 100% 100%; } 97%,100% { background-size: 0% 100%; } }
+@keyframes sweep2 { 0%,22% { background-size: 0% 100%; } 29%,93% { background-size: 100% 100%; } 97%,100% { background-size: 0% 100%; } }
+@keyframes sweep3 { 0%,40% { background-size: 0% 100%; } 47%,93% { background-size: 100% 100%; } 97%,100% { background-size: 0% 100%; } }
+
+.margin-notes { position: absolute; right: -118px; top: 34px; width: 108px; }
+.mnote {
+  position: relative;
+  font-family: var(--serif); font-size: 12.5px; line-height: 1.5;
+  color: var(--verm-deep); padding: 0 0 0 12px; margin-bottom: 26px;
+  border-left: 1px solid rgba(191,59,27,.55);
+  opacity: 0; transform: translateX(-8px);
+}
+.mnote small { display: block; font-family: var(--mono); font-size: 9px; color: var(--ink-3); letter-spacing: .12em; margin-bottom: 2px; }
+.mnote.n1 { animation: notein1 14s var(--ease) infinite; }
+.mnote.n2 { animation: notein2 14s var(--ease) infinite; }
+.mnote.n3 { animation: notein3 14s var(--ease) infinite; }
+@keyframes notein1 { 0%,11% { opacity:0; transform: translateX(-8px);} 15%,93% { opacity:1; transform:none;} 97%,100% { opacity:0; transform: translateX(-8px);} }
+@keyframes notein2 { 0%,29% { opacity:0; transform: translateX(-8px);} 33%,93% { opacity:1; transform:none;} 97%,100% { opacity:0; transform: translateX(-8px);} }
+@keyframes notein3 { 0%,47% { opacity:0; transform: translateX(-8px);} 51%,93% { opacity:1; transform:none;} 97%,100% { opacity:0; transform: translateX(-8px);} }
+
+.chip-tray { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 22px; }
+.kchip {
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: .06em;
+  color: var(--ink-2); background: var(--card);
+  border: 1px solid var(--line); border-radius: 999px;
+  padding: 4px 12px;
+  opacity: 0; transform: translateY(10px);
+}
+.kchip.hot { color: var(--verm-deep); border-color: rgba(191,59,27,.45); background: #faf0ea; }
+.chip-tray .kchip:nth-child(1) { animation: chip1 14s var(--ease) infinite; }
+.chip-tray .kchip:nth-child(2) { animation: chip2 14s var(--ease) infinite; }
+.chip-tray .kchip:nth-child(3) { animation: chip3 14s var(--ease) infinite; }
+.chip-tray .kchip:nth-child(4) { animation: chip4 14s var(--ease) infinite; }
+.chip-tray .kchip:nth-child(5) { animation: chip5 14s var(--ease) infinite; }
+.chip-tray .kchip:nth-child(6) { animation: chip6 14s var(--ease) infinite; }
+.chip-tray .kchip:nth-child(7) { animation: chip7 14s var(--ease) infinite; }
+.chip-tray .kchip:nth-child(8) { animation: chip8 14s var(--ease) infinite; }
+.chip-tray .kchip:nth-child(9) { animation: chip9 14s var(--ease) infinite; }
+@keyframes chip1 { 0%,58%   { opacity:0; transform:translateY(10px);} 62%,93% { opacity:1; transform:none;} 97%,100%{ opacity:0; transform:translateY(10px);} }
+@keyframes chip2 { 0%,60.5% { opacity:0; transform:translateY(10px);} 64.5%,93% { opacity:1; transform:none;} 97%,100%{ opacity:0; transform:translateY(10px);} }
+@keyframes chip3 { 0%,63%   { opacity:0; transform:translateY(10px);} 67%,93% { opacity:1; transform:none;} 97%,100%{ opacity:0; transform:translateY(10px);} }
+@keyframes chip4 { 0%,65.5% { opacity:0; transform:translateY(10px);} 69.5%,93% { opacity:1; transform:none;} 97%,100%{ opacity:0; transform:translateY(10px);} }
+@keyframes chip5 { 0%,68%   { opacity:0; transform:translateY(10px);} 72%,93% { opacity:1; transform:none;} 97%,100%{ opacity:0; transform:translateY(10px);} }
+@keyframes chip6 { 0%,70.5% { opacity:0; transform:translateY(10px);} 74.5%,93% { opacity:1; transform:none;} 97%,100%{ opacity:0; transform:translateY(10px);} }
+@keyframes chip7 { 0%,73%   { opacity:0; transform:translateY(10px);} 77%,93% { opacity:1; transform:none;} 97%,100%{ opacity:0; transform:translateY(10px);} }
+@keyframes chip8 { 0%,75.5% { opacity:0; transform:translateY(10px);} 79.5%,93% { opacity:1; transform:none;} 97%,100%{ opacity:0; transform:translateY(10px);} }
+@keyframes chip9 { 0%,78%   { opacity:0; transform:translateY(10px);} 82%,93% { opacity:1; transform:none;} 97%,100%{ opacity:0; transform:translateY(10px);} }
+
+/* ── 生態系跑馬燈 ─────────────────────────── */
+.marquee {
+  border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  overflow: hidden; padding: 15px 0; position: relative; z-index: 2;
+  background: rgba(253,251,245,.5);
+}
+.m-track {
+  display: flex; align-items: center; gap: 52px; width: max-content;
+  animation: mscroll 36s linear infinite;
+}
+.marquee:hover .m-track { animation-play-state: paused; }
+@keyframes mscroll { to { transform: translateX(-50%); } }
+.m-item {
+  font-family: var(--mono); font-size: 11.5px; letter-spacing: .22em;
+  color: var(--ink-3); white-space: nowrap; text-transform: uppercase;
+}
+.m-sep { color: var(--verm); font-size: 8px; }
+
+/* ── 通用 section ────────────────────────── */
+section.block { padding: 108px 0; position: relative; }
+.eyebrow {
+  font-family: var(--mono); font-size: 12px; letter-spacing: .24em;
+  color: var(--verm); margin-bottom: 16px;
+  display: flex; align-items: center; gap: 12px;
+}
+.eyebrow::before {
+  content: ""; width: 36px; height: 1px; background: var(--verm);
+  transform: scaleX(0); transform-origin: 0 50%; transition: transform .8s var(--ease) .2s;
+}
+.in .eyebrow::before, .eyebrow.in::before { transform: scaleX(1); }
+h2 {
+  font-family: var(--serif); font-weight: 700;
+  font-size: clamp(30px, 3.1vw, 42px); line-height: 1.35; margin-bottom: 18px;
+}
+.lede { color: var(--ink-2); font-size: 16px; max-width: 32em; }
+.lede strong { color: var(--ink); }
+.feature-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 76px; align-items: center;
+}
+.feature-grid.flip .f-copy { order: 2; }
+.feature-grid.flip .f-visual { order: 1; }
+.f-copy { position: relative; }
+.f-copy .ghost-no {
+  position: absolute; top: -86px; left: -14px; z-index: 0;
+  font-family: var(--serif); font-weight: 900; font-size: 168px; line-height: 1;
+  color: var(--ink); opacity: .05; user-select: none; pointer-events: none;
+}
+.night .f-copy .ghost-no { color: var(--cream); opacity: .06; }
+.f-points { list-style: none; margin-top: 24px; position: relative; z-index: 1; }
+.f-points li {
+  position: relative; padding-left: 26px; margin-bottom: 12px;
+  color: var(--ink-2); font-size: 15px;
+}
+.f-points li::before {
+  content: "◦"; position: absolute; left: 2px; color: var(--verm); font-weight: 700;
+}
+.f-points li strong { color: var(--ink); font-weight: 700; }
+
+/* 滾動 reveal */
+.reveal { opacity: 0; transform: translateY(30px); transition: opacity .85s var(--ease), transform .85s var(--ease); }
+.reveal.in { opacity: 1; transform: none; }
+.reveal.dly1 { transition-delay: .12s; }
+.reveal.dly2 { transition-delay: .24s; }
+.reveal.dly3 { transition-delay: .36s; }
+/* 子元素 stagger（.stagger 進視野後，子項依序浮起）*/
+.stagger > * { opacity: 0; transform: translateY(14px); transition: opacity .6s var(--ease), transform .6s var(--ease); }
+.stagger.in > * { opacity: 1; transform: none; }
+.stagger.in > *:nth-child(1) { transition-delay: .05s; }
+.stagger.in > *:nth-child(2) { transition-delay: .13s; }
+.stagger.in > *:nth-child(3) { transition-delay: .21s; }
+.stagger.in > *:nth-child(4) { transition-delay: .29s; }
+.stagger.in > *:nth-child(5) { transition-delay: .37s; }
+.stagger.in > *:nth-child(6) { transition-delay: .45s; }
+.stagger.in > *:nth-child(7) { transition-delay: .53s; }
+.stagger.in > *:nth-child(8) { transition-delay: .61s; }
+.stagger.in > *:nth-child(9) { transition-delay: .69s; }
+.stagger.in > *:nth-child(10){ transition-delay: .77s; }
+
+/* ── mockup 通用 ─────────────────────────── */
+.frame {
+  background: var(--card);
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  padding: 24px;
+  box-shadow: 0 2px 6px rgba(40,30,10,.04), 0 18px 46px rgba(40,30,10,.08);
+}
+.frame-cap {
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: .14em;
+  color: var(--ink-3); margin-bottom: 16px; text-transform: uppercase;
+  display: flex; align-items: center; gap: 8px;
+}
+.frame-cap::before { content: ""; width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--verm); }
+
+/* 搜尋 mockup */
+.s-input {
+  display: flex; align-items: center; gap: 10px;
+  border: 1px solid var(--line); border-radius: 6px;
+  padding: 10px 14px; font-family: var(--mono); font-size: 13px; color: var(--ink);
+  background: #fff;
+}
+.s-input .caret { width: 1.5px; height: 16px; background: var(--verm); animation: blink 1.1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.s-sources { display: flex; gap: 8px; margin: 14px 0; flex-wrap: wrap; align-items: center; }
+.s-src {
+  font-family: var(--mono); font-size: 10.5px; padding: 3px 10px;
+  border: 1px solid var(--line); border-radius: 999px; color: var(--ink-2);
+}
+.s-merge { font-family: var(--mono); font-size: 10.5px; color: var(--verm); }
+.s-row {
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 11px 4px; border-top: 1px solid var(--line-soft);
+}
+.s-row .t { font-family: var(--serif); font-size: 13.5px; font-weight: 600; flex: 1; line-height: 1.45; }
+.s-row .cite { font-family: var(--mono); font-size: 10px; color: var(--ink-3); white-space: nowrap; }
+.badge {
+  font-family: var(--mono); font-size: 9.5px; font-weight: 500;
+  padding: 2px 7px; border-radius: 3px; white-space: nowrap;
+}
+.badge.q1 { background: var(--verm); color: #fff; }
+.badge.astar { background: var(--ink); color: var(--cream); }
+.badge.q2 { border: 1px solid var(--line); color: var(--ink-2); }
+
+/* 找重點 mockup */
+.k-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.k-cell { border: 1px solid var(--line-soft); border-radius: 6px; padding: 10px 12px; background: #fff; }
+.k-cell b { display: block; font-family: var(--mono); font-size: 9.5px; letter-spacing: .1em; color: var(--ink-3); margin-bottom: 4px; font-weight: 500; }
+.k-cell span { font-size: 11.5px; color: var(--ink-2); line-height: 1.5; display: block; }
+.k-cell.hot { border-color: rgba(191,59,27,.4); background: #fbf1ea; }
+.k-cell.hot b { color: var(--verm-deep); }
+.k-bar { height: 5px; border-radius: 3px; background: var(--line-soft); margin-top: 8px; overflow: hidden; }
+.k-bar i { display: block; height: 100%; width: 90%; background: var(--verm); border-radius: 3px; transform: scaleX(0); transform-origin: 0 50%; transition: transform 1s var(--ease) .8s; }
+.in .k-bar i { transform: scaleX(1); }
+.k-foot { margin-top: 12px; font-family: var(--mono); font-size: 10px; color: var(--ink-3); }
+.k-foot em { font-style: normal; color: #9a6700; }
+
+/* 比較 mockup */
+.c-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.c-table th {
+  font-family: var(--serif); font-size: 12.5px; text-align: left;
+  padding: 8px 10px; border-bottom: 2px solid var(--ink);
+}
+.c-table th:first-child { width: 64px; }
+.c-table td {
+  padding: 9px 10px; border-bottom: 1px solid var(--line-soft);
+  color: var(--ink-2); vertical-align: top; line-height: 1.55;
+}
+.c-table td.dim { font-family: var(--mono); font-size: 10px; letter-spacing: .08em; color: var(--verm-deep); white-space: nowrap; }
+.c-verdict {
+  margin-top: 14px; padding: 12px 14px; border-left: 3px solid var(--verm);
+  background: #fbf1ea; font-size: 12.5px; color: var(--ink-2); line-height: 1.6;
+  font-family: var(--serif);
+}
+
+/* ── 辯論（暗場 + SSE 串流）────────────────── */
+.night {
+  background: var(--night); color: var(--cream);
+  padding: 118px 0; position: relative;
+}
+.night::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(820px 420px at 72% 38%, rgba(191,59,27,.13), transparent 68%);
+}
+.night .wrap { position: relative; }
+.night .eyebrow { color: #e0653f; }
+.night .eyebrow::before { background: #e0653f; }
+.night h2 { color: var(--cream); }
+.night .lede { color: #b3a992; }
+.night .lede strong { color: var(--cream); }
+.night .f-points li { color: #b3a992; }
+.night .f-points li strong { color: var(--cream); }
+
+.debate-stage { display: flex; flex-direction: column; gap: 14px; }
+.live-tag {
+  align-self: flex-start; display: flex; align-items: center; gap: 8px;
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: .22em; color: #8d846f;
+}
+.live-tag .pulse {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--verm);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+@keyframes pulse { 0%,100% { opacity: 1; transform: scale(1);} 50% { opacity: .35; transform: scale(.72);} }
+.motion-card {
+  border-left: 3px solid var(--verm);
+  background: var(--night-2);
+  padding: 14px 18px; border-radius: 0 6px 6px 0;
+  font-family: var(--serif); font-size: 14.5px; line-height: 1.6;
+}
+.motion-card small { display: block; font-family: var(--mono); font-size: 9.5px; letter-spacing: .18em; color: #8d846f; margin-bottom: 6px; }
+.bubble {
+  max-width: 84%; padding: 13px 16px; border-radius: 8px;
+  font-size: 12.5px; line-height: 1.7;
+  opacity: 0; transform: translateY(12px);
+  transition: opacity .5s var(--ease), transform .5s var(--ease);
+}
+.bubble.show { opacity: 1; transform: none; }
+.bubble small {
+  display: block; font-family: var(--mono); font-size: 9.5px;
+  letter-spacing: .14em; margin-bottom: 6px; opacity: .75;
+}
+.bubble.pro { align-self: flex-start; background: var(--cream); color: var(--ink); border-radius: 2px 8px 8px 8px; }
+.bubble.con { align-self: flex-end; background: transparent; border: 1px solid #4a4232; color: #d8cfba; border-radius: 8px 2px 8px 8px; }
+.bubble.con small { color: #a89c80; }
+.bubble .tcaret { display: inline-block; width: 1.5px; height: 13px; background: var(--verm); vertical-align: -2px; margin-left: 2px; animation: blink 1s steps(1) infinite; }
+.verdict {
+  margin-top: 8px; border: 1px solid #4a4232; border-radius: 8px;
+  padding: 16px 18px; background: rgba(255,255,255,.02);
+  opacity: 0; transform: translateY(12px);
+  transition: opacity .5s var(--ease), transform .5s var(--ease);
+}
+.verdict.show { opacity: 1; transform: none; }
+.verdict small { display: block; font-family: var(--mono); font-size: 9.5px; letter-spacing: .18em; color: #8d846f; margin-bottom: 10px; }
+.v-row { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; font-size: 12px; }
+.v-row .who { font-family: var(--mono); font-size: 10.5px; width: 92px; color: #d8cfba; }
+.v-track { flex: 1; height: 5px; border-radius: 3px; background: #3a3426; overflow: hidden; }
+.v-track i {
+  display: block; height: 100%; border-radius: 3px; background: var(--verm);
+  transform: scaleX(0); transform-origin: 0 50%; transition: transform 1.1s var(--ease) .15s;
+}
+.verdict.show .v-track i { transform: scaleX(1); }
+.v-row .pt { font-family: var(--mono); font-size: 11px; width: 30px; text-align: right; color: var(--cream); }
+.v-line { margin-top: 10px; font-family: var(--serif); font-size: 13px; color: #d8cfba; line-height: 1.6; }
+.v-line b { color: var(--cream); }
+
+/* ── 流程 ────────────────────────────────── */
+.flow { padding: 118px 0 100px; }
+.flow-track {
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 26px;
+  margin-top: 58px; position: relative;
+}
+.flow-track::before {
+  content: ""; position: absolute; top: 5px; left: 8px; right: 8px; height: 1px;
+  background: var(--line);
+}
+.flow-track::after {
+  content: ""; position: absolute; top: 5px; left: 8px; right: 8px; height: 1px;
+  background: var(--verm); transform: scaleX(0); transform-origin: 0 50%;
+  transition: transform 1.8s var(--ease) .3s;
+}
+.flow-track.in::after { transform: scaleX(1); }
+.step { position: relative; padding-top: 26px; }
+.step::before {
+  content: ""; position: absolute; top: 0; left: 0; z-index: 1;
+  width: 11px; height: 11px; border-radius: 50%;
+  background: var(--paper); border: 2.5px solid var(--verm);
+}
+.step .no { font-family: var(--mono); font-size: 11px; letter-spacing: .18em; color: var(--verm); }
+.step h3 { font-family: var(--serif); font-size: 18px; font-weight: 700; margin: 6px 0 8px; }
+.step p { font-size: 13px; color: var(--ink-2); line-height: 1.7; }
+
+/* ── local-first ─────────────────────────── */
+.local { background: var(--paper-deep); padding: 112px 0; border-top: 1px solid var(--line); }
+.local-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 26px; margin-top: 54px; }
+.local-card {
+  background: var(--card); border: 1px solid var(--line-soft); border-radius: 8px;
+  padding: 32px 30px; box-shadow: 0 2px 6px rgba(40,30,10,.04);
+  transition: transform .35s var(--ease), box-shadow .35s var(--ease);
+}
+.local-card:hover { transform: translateY(-4px); box-shadow: 0 14px 34px rgba(40,30,10,.1); }
+.local-card .glyph {
+  width: 52px; height: 52px; display: flex; align-items: center; justify-content: center;
+  font-family: var(--serif); font-size: 24px; font-weight: 900; color: var(--verm);
+  border: 1.5px solid rgba(191,59,27,.5); border-radius: 4px; margin-bottom: 18px;
+  transform: rotate(-4deg);
+}
+.local-card h3 { font-family: var(--serif); font-size: 19px; font-weight: 700; margin-bottom: 10px; }
+.local-card p { font-size: 13.5px; color: var(--ink-2); line-height: 1.8; }
+.local-card p code {
+  font-family: var(--mono); font-size: 11.5px; background: var(--paper);
+  border: 1px solid var(--line-soft); border-radius: 3px; padding: 1px 5px;
+}
+.local-foot {
+  margin-top: 42px; text-align: center;
+  font-family: var(--mono); font-size: 12px; letter-spacing: .1em; color: var(--ink-3);
+}
+.local-foot em { color: var(--verm); font-style: normal; }
+
+/* ── 尾聲 CTA + 閱訖印 ───────────────────── */
+.coda { padding: 140px 0 128px; text-align: center; position: relative; }
+.coda h2 { font-size: clamp(34px, 3.8vw, 52px); margin-bottom: 16px; }
+.coda p { color: var(--ink-2); margin-bottom: 38px; }
+.coda .btn-primary { font-size: 16px; padding: 14px 36px; }
+.seal {
+  position: absolute; top: 96px; right: 17%;
+  width: 82px; height: 82px; border: 3.5px solid var(--verm);
+  border-radius: 6px; color: var(--verm);
+  font-family: var(--serif); font-weight: 900; font-size: 27px; line-height: 1.15;
+  display: flex; align-items: center; justify-content: center;
+  letter-spacing: .08em; text-indent: .08em;
+  transform: rotate(-7deg) scale(1.7); opacity: 0;
+  box-shadow: inset 0 0 14px rgba(191,59,27,.18);
+  user-select: none; pointer-events: none;
+}
+.seal.stamped { animation: stamp .45s cubic-bezier(.2,1.4,.4,1) forwards; }
+@keyframes stamp {
+  0%   { transform: rotate(-7deg) scale(1.7); opacity: 0; }
+  62%  { transform: rotate(-7deg) scale(.94); opacity: 1; }
+  100% { transform: rotate(-7deg) scale(1);   opacity: .92; }
+}
+
+footer { border-top: 1px solid var(--line); padding: 34px 0 44px; }
+.foot-inner {
+  max-width: 1180px; margin: 0 auto; padding: 0 40px;
+  display: flex; align-items: baseline; gap: 24px;
+}
+.foot-inner .wordmark { font-size: 17px; }
+.foot-links { margin-left: auto; display: flex; gap: 22px; }
+.foot-links a { color: var(--ink-2); text-decoration: none; font-size: 13px; }
+.foot-links a:hover { color: var(--verm); }
+.foot-tag { font-family: var(--mono); font-size: 11px; color: var(--ink-3); letter-spacing: .06em; }
+
+/* ── reduced motion ──────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation-duration: .001s !important; animation-delay: 0s !important; transition-duration: .001s !important; }
+  .hero-enter, .mnote, .kchip { opacity: 1; transform: none; animation: none !important; }
+  .sheet-abs .hl { background-size: 100% 100% !important; animation: none !important; }
+  .reveal, .stagger > *, .bubble, .verdict { opacity: 1 !important; transform: none !important; }
+  .circled svg path { stroke-dashoffset: 0; animation: none; }
+  .v-track i, .k-bar i, .flow-track::after { transform: scaleX(1) !important; }
+  .m-track { animation: none !important; }
+  .seal { opacity: .92; transform: rotate(-7deg); }
+}
+
+/* ── 窄螢幕（原型以 1440 為主，僅粗略降級）── */
+@media (max-width: 960px) {
+  .hero-grid, .feature-grid, .local-grid { grid-template-columns: 1fr; }
+  .feature-grid.flip .f-copy { order: 1; }
+  .feature-grid.flip .f-visual { order: 2; }
+  .flow-track { grid-template-columns: 1fr; gap: 34px; }
+  .flow-track::before, .flow-track::after { display: none; }
+  .side-label, .seal, .ghost-char { display: none; }
+  .anno-stage { padding-right: 0; }
+  .margin-notes { display: none; }
+  .nav-links a:not(.btn) { display: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="progress" id="progress"></div>
+<div class="cursor-ring" id="cursorRing"></div>
+<div class="cursor-dot" id="cursorDot"></div>
+
+<nav id="nav">
+  <div class="nav-inner">
+    <a class="wordmark" href="#">litereview<span class="dot">。</span></a>
+    <div class="nav-links">
+      <a href="#features">功能</a>
+      <a href="#flow">流程</a>
+      <a href="#local">本機優先</a>
+      <a href="https://github.com/easontype/litereview" target="_blank" rel="noopener">GitHub ↗</a>
+      <a class="btn btn-primary btn-sm magnetic" href="/dashboard">進入工作台</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ═══ Hero ═══ -->
+<header class="hero">
+  <div class="hero-ghost ghost-char">批</div>
+  <div class="float-cite" style="top:26%; left:46%;">[17]</div>
+  <div class="float-cite f2" style="top:64%; left:40%;">[3]</div>
+  <div class="float-cite f3" style="top:20%; left:8%;">†</div>
+  <div class="side-label">本機執行・開源 MIT・訂閱即用</div>
+  <div class="wrap">
+    <div class="hero-grid">
+      <div>
+        <div class="kicker hero-enter d1">litereview — 個人文獻研究工具</div>
+        <h1 class="hero-enter d2">替每一篇論文，<br>留下<span class="circled">硃批<svg viewBox="0 0 200 92" preserveAspectRatio="none" aria-hidden="true"><path d="M18,50 C14,18 64,7 104,9 C154,11 190,24 187,48 C184,76 136,86 92,83 C50,80 14,68 20,44"/></svg></span>。</h1>
+        <p class="hero-sub hero-enter d3">
+          <span class="emph">搜尋、找重點、比較、辯論</span>——文獻研究一氣呵成。
+          三大學術資料庫、九欄位深度重點、五維比較表，
+          還能讓<strong>多個模型針對爭點攻防</strong>，裁判給出判決。
+          全部在你自己的電腦上完成。
+        </p>
+        <div class="hero-ctas hero-enter d4">
+          <a class="btn btn-primary magnetic" href="/dashboard">進入工作台</a>
+          <a class="btn btn-ghost magnetic" href="https://github.com/easontype/litereview" target="_blank" rel="noopener">開源原始碼 ↗</a>
+        </div>
+        <p class="hero-note hero-enter d4">
+          不需帳號 · 不需雲端 · 預設走 Claude 訂閱，<em>不另計 API 費</em>
+        </p>
+      </div>
+
+      <!-- 硃批動畫（滑鼠傾斜 + 14s 迴圈）-->
+      <div class="hero-enter d3">
+        <div class="tilt-wrap" id="tilt">
+          <div class="anno-stage" aria-hidden="true">
+            <div class="sheet">
+              <div class="sheet-title">Attention Is All You Need</div>
+              <div class="sheet-authors">Vaswani et al. · NeurIPS 2017 · arXiv:1706.03762</div>
+              <p class="sheet-abs">
+                The dominant sequence transduction models are based on complex recurrent or
+                convolutional neural networks that include an encoder and a decoder.
+                <span class="hl hl1">We propose a new simple network architecture, the Transformer,
+                based solely on attention mechanisms</span>, dispensing with recurrence and
+                convolutions entirely. Experiments on two machine translation tasks show these
+                models to be <span class="hl hl2">superior in quality while being more
+                parallelizable and requiring significantly less time to train</span>. Our model
+                achieves 28.4 BLEU on the WMT 2014 English-to-German translation task, improving
+                over the existing best results. <span class="hl hl3">The Transformer generalizes
+                well to other tasks</span> by applying it successfully to English constituency
+                parsing both with large and limited training data.
+              </p>
+              <div class="margin-notes">
+                <div class="mnote n1"><small>方法</small>純注意力架構，捨棄遞迴與卷積</div>
+                <div class="mnote n2"><small>發現</small>品質更佳、可平行、訓練更快</div>
+                <div class="mnote n3"><small>新穎度</small>9 / 10 — 範式轉移</div>
+              </div>
+            </div>
+            <div class="chip-tray">
+              <span class="kchip">研究問題</span>
+              <span class="kchip">方法</span>
+              <span class="kchip">資料與實驗</span>
+              <span class="kchip">主要發現</span>
+              <span class="kchip">貢獻</span>
+              <span class="kchip">侷限性</span>
+              <span class="kchip hot">新穎度 9/10</span>
+              <span class="kchip">關鍵公式</span>
+              <span class="kchip">後續方向</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ═══ 生態系跑馬燈 ═══ -->
+<div class="marquee" aria-hidden="true">
+  <div class="m-track" id="mtrack">
+    <span class="m-item">OpenAlex</span><span class="m-sep">◆</span>
+    <span class="m-item">Semantic Scholar</span><span class="m-sep">◆</span>
+    <span class="m-item">arXiv</span><span class="m-sep">◆</span>
+    <span class="m-item">Zotero</span><span class="m-sep">◆</span>
+    <span class="m-item">Claude</span><span class="m-sep">◆</span>
+    <span class="m-item">OpenAI</span><span class="m-sep">◆</span>
+    <span class="m-item">Gemini</span><span class="m-sep">◆</span>
+    <span class="m-item">Ollama</span><span class="m-sep">◆</span>
+    <span class="m-item">SQLite</span><span class="m-sep">◆</span>
+    <span class="m-item">MIT License</span><span class="m-sep">◆</span>
+  </div>
+</div>
+
+<main id="features">
+
+  <!-- ═══ F1 搜尋 ═══ -->
+  <section class="block">
+    <div class="wrap">
+      <div class="feature-grid">
+        <div class="f-copy reveal">
+          <div class="ghost-no">01</div>
+          <div class="eyebrow">01 · 檢索 SEARCH</div>
+          <h2>三個資料庫，<br>一次搜完。</h2>
+          <p class="lede">
+            關鍵字、arXiv ID、DOI 都行。litereview 同時查
+            <strong>OpenAlex、Semantic Scholar、arXiv</strong> 並自動去重，
+            你不必再開三個分頁交叉核對。
+          </p>
+          <ul class="f-points">
+            <li><strong>引用數與品質信號</strong>直接附在結果上</li>
+            <li><strong>期刊分級徽章</strong>：SJR Q1–Q4、CORE A*–C，一眼判斷值不值得讀</li>
+            <li>也可從 <strong>Zotero</strong> 匯入、或直接上傳 PDF</li>
+          </ul>
+        </div>
+        <div class="f-visual reveal dly1">
+          <div class="frame">
+            <div class="frame-cap">Search — 合併三來源</div>
+            <div class="s-input">attention is all you need<span class="caret"></span></div>
+            <div class="s-sources">
+              <span class="s-src">OpenAlex 12</span>
+              <span class="s-src">Semantic Scholar 9</span>
+              <span class="s-src">arXiv 4</span>
+              <span class="s-merge">→ 去重後 18 篇</span>
+            </div>
+            <div class="stagger">
+              <div class="s-row">
+                <span class="t">Attention Is All You Need</span>
+                <span class="badge astar">CORE A*</span>
+                <span class="cite">被引 140k</span>
+              </div>
+              <div class="s-row">
+                <span class="t">BERT: Pre-training of Deep Bidirectional Transformers</span>
+                <span class="badge q1">SJR Q1</span>
+                <span class="cite">被引 110k</span>
+              </div>
+              <div class="s-row">
+                <span class="t">Efficient Transformers: A Survey</span>
+                <span class="badge q2">SJR Q2</span>
+                <span class="cite">被引 2.1k</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ F2 找重點 ═══ -->
+  <section class="block">
+    <div class="wrap">
+      <div class="feature-grid flip">
+        <div class="f-copy reveal">
+          <div class="ghost-no">02</div>
+          <div class="eyebrow">02 · 精讀 KEYPOINTS</div>
+          <h2>九個欄位，<br>把一篇論文拆透。</h2>
+          <p class="lede">
+            不是摘要的摘要。litereview 優先抓<strong>全文</strong>
+            （arXiv → 上傳 PDF → 開放取用版本），
+            再由 LLM 產出結構化重點——從研究問題到關鍵公式，逐欄拆解。
+          </p>
+          <ul class="f-points">
+            <li>全文抓不到時<strong>誠實標示「僅摘要」</strong>，不假裝讀過</li>
+            <li>分析結果可<strong>一鍵回寫 Zotero</strong> 成為子筆記</li>
+            <li>典型一篇 1–2 分鐘完成，結果永久快取在本機</li>
+          </ul>
+        </div>
+        <div class="f-visual reveal dly1">
+          <div class="frame">
+            <div class="frame-cap">Keypoints — 九欄位結構化重點</div>
+            <div class="k-grid stagger">
+              <div class="k-cell"><b>研究問題</b><span>遞迴架構難以平行化…</span></div>
+              <div class="k-cell"><b>方法</b><span>多頭自注意力 + 位置編碼</span></div>
+              <div class="k-cell"><b>資料與實驗</b><span>WMT14 En-De / En-Fr</span></div>
+              <div class="k-cell"><b>主要發現</b><span>28.4 BLEU，訓練成本大減</span></div>
+              <div class="k-cell"><b>貢獻</b><span>首個純注意力序列模型</span></div>
+              <div class="k-cell"><b>侷限性</b><span>O(n²) 記憶體隨序列長度</span></div>
+              <div class="k-cell hot"><b>新穎度</b><span>範式轉移級</span><div class="k-bar"><i></i></div></div>
+              <div class="k-cell"><b>關鍵公式</b><span>softmax(QKᵀ/√d)V</span></div>
+              <div class="k-cell"><b>後續方向</b><span>更長序列、其他模態</span></div>
+            </div>
+            <div class="k-foot">全文來源：arXiv (ar5iv) ✓ &nbsp;·&nbsp; 抓不到時 → <em>⚠ 僅摘要</em>（明確標示）</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ F3 比較 ═══ -->
+  <section class="block">
+    <div class="wrap">
+      <div class="feature-grid">
+        <div class="f-copy reveal">
+          <div class="ghost-no">03</div>
+          <div class="eyebrow">03 · 對讀 COMPARE</div>
+          <h2>2 到 6 篇，<br>五個維度，一張表。</h2>
+          <p class="lede">
+            相關工作各說各話？勾選工作區裡的論文，litereview 沿
+            <strong>方法、實驗、貢獻、侷限、新穎度</strong>五個維度逐一對齊，
+            最後給一段綜合結論。
+          </p>
+          <ul class="f-points">
+            <li>還沒分析過的論文會<strong>自動先跑找重點</strong>，不用手動排隊</li>
+            <li>每次比較都<strong>存成可回訪的紀錄</strong>，寫作時隨時引用</li>
+          </ul>
+        </div>
+        <div class="f-visual reveal dly1">
+          <div class="frame">
+            <div class="frame-cap">Compare — 五維比較表</div>
+            <table class="c-table">
+              <tr><th></th><th>Transformer</th><th>BERT</th></tr>
+              <tr><td class="dim">方法</td><td>編碼器-解碼器，純注意力</td><td>僅編碼器，雙向遮罩預訓練</td></tr>
+              <tr><td class="dim">實驗</td><td>WMT14 翻譯</td><td>GLUE / SQuAD 微調</td></tr>
+              <tr><td class="dim">貢獻</td><td>架構本身</td><td>預訓練-微調範式</td></tr>
+              <tr><td class="dim">侷限</td><td>O(n²) 序列長度</td><td>算力門檻、遮罩偏差</td></tr>
+              <tr><td class="dim">新穎度</td><td>9 / 10</td><td>8 / 10</td></tr>
+            </table>
+            <div class="c-verdict">
+              綜合結論：前者奠定架構地基，後者證明其遷移價值——引用時宜分開定位，不宜互為替代。
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ F4 辯論（暗場 + SSE 串流）═══ -->
+  <section class="night">
+    <div class="wrap">
+      <div class="feature-grid flip">
+        <div class="f-copy reveal">
+          <div class="ghost-no">04</div>
+          <div class="eyebrow">04 · 攻防 DEBATE</div>
+          <h2>讓模型吵一架，<br>你聽結論。</h2>
+          <p class="lede">
+            先由審查員給出五維 scorecard 與<strong>可辯論的爭點</strong>，
+            一鍵發起辯論：正反方多輪攻防、裁判評分判決，
+            逐字稿即時串流呈現。
+          </p>
+          <ul class="f-points">
+            <li>六個座位（找重點／比較／審查／正方／反方／裁判）<strong>可各自指派模型</strong></li>
+            <li>讓反方或裁判用<strong>不同家的模型</strong>，避免自我偏好</li>
+            <li>支援 OpenAI、Gemini、Anthropic API 與任何相容端點（DeepSeek／Groq／Ollama）</li>
+          </ul>
+        </div>
+        <div class="f-visual">
+          <div class="debate-stage" id="debate">
+            <div class="live-tag"><span class="pulse"></span>LIVE · SSE STREAMING</div>
+            <div class="motion-card">
+              <small>MOTION · 來自審查爭點</small>
+              自注意力的 O(n²) 複雜度，是否為長序列任務的根本瓶頸？
+            </div>
+            <div class="bubble pro" data-type>
+              <small>正方 · claude</small>
+              <span class="txt">記憶體隨序列長度平方成長是架構性事實：128k 上下文的 KV cache 成本已成部署的第一瓶頸，各種線性化嘗試至今未在品質上追平。</span>
+            </div>
+            <div class="bubble con" data-type>
+              <small>反方 · gemini</small>
+              <span class="txt">「瓶頸」不等於「根本」。FlashAttention 已把常數項壓低一個量級，且實務上長文任務的失效多來自訓練分布，而非注意力本身的複雜度。</span>
+            </div>
+            <div class="verdict" id="verdict">
+              <small>VERDICT · 裁判 · gpt</small>
+              <div class="v-row"><span class="who">正方 claude</span><div class="v-track"><i style="width:65%"></i></div><span class="pt">6.5</span></div>
+              <div class="v-row"><span class="who">反方 gemini</span><div class="v-track"><i style="width:78%"></i></div><span class="pt">7.8</span></div>
+              <div class="v-line"><b>反方勝。</b>正方未能回應「工程緩解使複雜度不再是首要失效因素」的證據鏈。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ 流程 ═══ -->
+  <section class="flow" id="flow">
+    <div class="wrap">
+      <div class="reveal">
+        <div class="eyebrow">HOW IT WORKS</div>
+        <h2>從一個關鍵字，到一場判決。</h2>
+      </div>
+      <div class="flow-track reveal">
+        <div class="step"><span class="no">01</span><h3>搜尋或匯入</h3><p>關鍵字／DOI／arXiv ID，或從 Zotero、PDF 匯入工作區。</p></div>
+        <div class="step"><span class="no">02</span><h3>找重點</h3><p>抓全文、九欄位深度分析，狀態即時顯示在側欄。</p></div>
+        <div class="step"><span class="no">03</span><h3>比較</h3><p>勾 2–6 篇，五維對齊成一張表 + 綜合結論。</p></div>
+        <div class="step"><span class="no">04</span><h3>審查</h3><p>五維評分 scorecard、優缺點、可辯論的爭點。</p></div>
+        <div class="step"><span class="no">05</span><h3>辯論</h3><p>正反攻防、裁判判決，逐字稿即時串流。</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ local-first ═══ -->
+  <section class="local" id="local">
+    <div class="wrap">
+      <div class="reveal" style="text-align:center">
+        <div class="eyebrow" style="justify-content:center">LOCAL-FIRST · OPEN SOURCE</div>
+        <h2>你的研究，留在你的電腦。</h2>
+        <p class="lede" style="margin:0 auto">沒有帳號系統、沒有雲端同步、沒有遙測。</p>
+      </div>
+      <div class="local-grid">
+        <div class="local-card reveal">
+          <span class="glyph">庫</span>
+          <h3>資料不出門</h3>
+          <p>所有論文、分析、辯論紀錄與 API key 都存在本機 <code>SQLite</code>；上傳的 PDF 也只放在你的磁碟。刪掉資料夾，就真的刪乾淨了。</p>
+        </div>
+        <div class="local-card reveal dly1">
+          <span class="glyph">訂</span>
+          <h3>訂閱即用，不另付費</h3>
+          <p>預設模型走 <code>claude</code> CLI，用你既有的 Claude 訂閱登入 token——<strong>不吃 API key、不另計費</strong>。想換 OpenAI、Gemini 或本機 Ollama？設定中心隨時調度。</p>
+        </div>
+        <div class="local-card reveal dly2">
+          <span class="glyph">源</span>
+          <h3>MIT 開源</h3>
+          <p>整套原始碼公開在 GitHub，MIT 授權。搜尋邏輯、prompt、辯論引擎全部攤在陽光下——你可以審計它，也可以改造它。</p>
+        </div>
+      </div>
+      <div class="local-foot reveal">git clone → npm install → <em>npm run dev</em> ，三步開始。</div>
+    </div>
+  </section>
+
+  <!-- ═══ 尾聲 CTA ═══ -->
+  <section class="coda">
+    <div class="seal" id="seal">閱訖</div>
+    <div class="wrap reveal">
+      <h2>下一篇論文，<br>讓它先過一場辯論。</h2>
+      <p>打開工作台，把今天存下來的那篇 PDF 丟進去。</p>
+      <a class="btn btn-primary magnetic" href="/dashboard">進入工作台</a>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="foot-inner">
+    <a class="wordmark" href="#">litereview<span class="dot">。</span></a>
+    <span class="foot-tag">personal literature review · local-first</span>
+    <div class="foot-links">
+      <a href="https://github.com/easontype/litereview" target="_blank" rel="noopener">GitHub</a>
+      <a href="#">MIT License</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+(() => {
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const fine = matchMedia('(pointer: fine)').matches;
+
+  /* 跑馬燈內容複製一份，讓 -50% 位移無縫循環 */
+  const mtrack = document.getElementById('mtrack');
+  if (mtrack) mtrack.innerHTML += mtrack.innerHTML;
+
+  /* nav 滾動加底 + 閱讀進度線（rAF 節流） */
+  const nav = document.getElementById('nav');
+  const progress = document.getElementById('progress');
+  let ticking = false;
+  const onScroll = () => {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(() => {
+      nav.classList.toggle('scrolled', window.scrollY > 12);
+      const max = document.documentElement.scrollHeight - innerHeight;
+      progress.style.transform = `scaleX(${max > 0 ? window.scrollY / max : 0})`;
+      ticking = false;
+    });
+  };
+  onScroll();
+  addEventListener('scroll', onScroll, { passive: true });
+
+  /* 滾動 reveal（含 .stagger 子項與 .flow-track 硃線） */
+  const io = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+    }
+  }, { threshold: 0.15, rootMargin: '0px 0px -8% 0px' });
+  document.querySelectorAll('.reveal, .stagger, .frame').forEach(el => io.observe(el));
+
+  /* hero 滑鼠 3D 傾斜（lerp，僅桌面指標） */
+  const tilt = document.getElementById('tilt');
+  if (tilt && fine && !reduced) {
+    let tx = 0, ty = 0, cx = 0, cy = 0, raf = null;
+    const hero = document.querySelector('.hero');
+    const loop = () => {
+      cx += (tx - cx) * 0.08; cy += (ty - cy) * 0.08;
+      tilt.style.transform = `perspective(1000px) rotateX(${cy}deg) rotateY(${cx}deg)`;
+      if (Math.abs(tx - cx) > .01 || Math.abs(ty - cy) > .01) raf = requestAnimationFrame(loop);
+      else raf = null;
+    };
+    hero.addEventListener('mousemove', (ev) => {
+      const r = hero.getBoundingClientRect();
+      tx = ((ev.clientX - r.left) / r.width - .5) * 7;
+      ty = -((ev.clientY - r.top) / r.height - .5) * 5;
+      if (!raf) raf = requestAnimationFrame(loop);
+    });
+    hero.addEventListener('mouseleave', () => { tx = 0; ty = 0; if (!raf) raf = requestAnimationFrame(loop); });
+  }
+
+  /* 磁吸按鈕 */
+  if (fine && !reduced) {
+    document.querySelectorAll('.magnetic').forEach(btn => {
+      btn.addEventListener('mousemove', (ev) => {
+        const r = btn.getBoundingClientRect();
+        const dx = ev.clientX - (r.left + r.width / 2);
+        const dy = ev.clientY - (r.top + r.height / 2);
+        btn.style.transform = `translate(${dx * .18}px, ${dy * .3}px)`;
+      });
+      btn.addEventListener('mouseleave', () => {
+        btn.style.transition = 'transform .4s cubic-bezier(.22,.8,.32,1), background .25s, color .25s, box-shadow .25s, border-color .25s';
+        btn.style.transform = '';
+        setTimeout(() => { btn.style.transition = ''; }, 400);
+      });
+    });
+  }
+
+  /* 自訂硃點游標 */
+  if (fine && !reduced) {
+    document.body.classList.add('fine-cursor');
+    const dot = document.getElementById('cursorDot');
+    const ring = document.getElementById('cursorRing');
+    let mx = -100, my = -100, rx = -100, ry = -100, rs = 1, craf = null;
+    const cloop = () => {
+      rx += (mx - rx) * .16; ry += (my - ry) * .16;
+      const targetS = ring.classList.contains('on') ? 1.7 : 1;
+      rs += (targetS - rs) * .18;
+      ring.style.transform = `translate(${rx}px, ${ry}px) scale(${rs})`;
+      dot.style.transform = `translate(${mx}px, ${my}px)`;
+      craf = requestAnimationFrame(cloop);
+    };
+    addEventListener('mousemove', (ev) => {
+      mx = ev.clientX; my = ev.clientY;
+      document.body.classList.add('cursor-live');
+      if (!craf) craf = requestAnimationFrame(cloop);
+    }, { passive: true });
+    document.querySelectorAll('a, button, .btn').forEach(el => {
+      el.addEventListener('mouseenter', () => ring.classList.add('on'));
+      el.addEventListener('mouseleave', () => ring.classList.remove('on'));
+    });
+  }
+
+  /* 「閱訖」硃印：尾聲進視野時戳章 */
+  const seal = document.getElementById('seal');
+  if (seal && !reduced) {
+    const sio = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting) { seal.classList.add('stamped'); sio.disconnect(); }
+    }, { threshold: 0.5 });
+    sio.observe(document.querySelector('.coda'));
+  } else if (seal) {
+    seal.style.opacity = '.92';
+    seal.style.transform = 'rotate(-7deg)';
+  }
+
+  /* 辯論區：SSE 風格逐字串流（進視野觸發一次） */
+  const debate = document.getElementById('debate');
+  if (debate) {
+    const bubbles = [...debate.querySelectorAll('.bubble')];
+    const verdict = document.getElementById('verdict');
+    if (reduced) {
+      bubbles.forEach(b => b.classList.add('show'));
+      verdict.classList.add('show');
+    } else {
+      // 先清空文字，存到 dataset，等進視野再打出來
+      bubbles.forEach(b => {
+        const t = b.querySelector('.txt');
+        b.dataset.full = t.textContent.trim();
+        t.textContent = '';
+      });
+      const typeInto = (bubble) => new Promise(res => {
+        bubble.classList.add('show');
+        const t = bubble.querySelector('.txt');
+        const caret = document.createElement('span');
+        caret.className = 'tcaret';
+        bubble.appendChild(caret);
+        const full = bubble.dataset.full;
+        let i = 0;
+        const tick = () => {
+          i += 1 + (Math.random() < .3 ? 1 : 0);   // 模擬 token 節奏
+          t.textContent = full.slice(0, i);
+          if (i < full.length) setTimeout(tick, 26);
+          else { caret.remove(); res(); }
+        };
+        tick();
+      });
+      const dio = new IntersectionObserver(async (entries) => {
+        if (!entries[0].isIntersecting) return;
+        dio.disconnect();
+        await new Promise(r => setTimeout(r, 350));
+        for (const b of bubbles) { await typeInto(b); await new Promise(r => setTimeout(r, 420)); }
+        verdict.classList.add('show');
+      }, { threshold: 0.35 });
+      dio.observe(debate);
+    }
+  }
+})();
+</script>
+</body>
+</html>
