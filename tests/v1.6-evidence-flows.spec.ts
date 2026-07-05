@@ -6,7 +6,7 @@ import { buildSamplePdf } from "../src/lib/fulltext/sample-pdf";
 const BASE_URL = process.env.LR_BASE_URL ?? "http://localhost:3010";
 const DB_PATH = path.join(process.cwd(), "data", "litereview.db");
 
-const SEATS = ["keypoints", "compare", "reviewer", "proponent", "opponent", "judge"];
+const SEATS = ["keypoints", "compare", "reviewer", "proponent", "opponent", "judge", "judge2", "judge3"];
 
 const TEXT_PDF = buildSamplePdf([
   "Evidence flows end-to-end test paper.",

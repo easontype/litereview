@@ -26,6 +26,10 @@ export function buildReviewPrompt(
       "methodological_rigor": [{ "quote": "從全文原樣逐字抄錄、支撐該評分的一段話（200 字以內）", "page": ${withMarkers ? "所在頁碼" : "null"} }],
       "evidence_strength": [], "novelty": [], "reproducibility": [], "clarity": []
     },
+    "checklist": {
+      "research_question_clarity": [], "design_fit": [], "sample_adequacy": [],
+      "data_reliability": [], "limitations_acknowledged": []
+    },
     "strengths": [[], []],
     "weaknesses": [[], []]
   }`;
@@ -34,7 +38,7 @@ export function buildReviewPrompt(
     ? ""
     : `
 evidence 規則：
-- scores 每個維度給 1–2 條出處；strengths / weaknesses 是「陣列的陣列」，長度與上方 strengths / weaknesses 相同、依序對應，某條沒有出處就放空陣列。
+- scores 每個維度、checklist 每個檢核項各給 1–2 條出處；strengths / weaknesses 是「陣列的陣列」，長度與上方 strengths / weaknesses 相同、依序對應，某條沒有出處就放空陣列。
 - quote 必須逐字出自全文，不可改寫或翻譯。
 - ${
         withMarkers
@@ -76,8 +80,26 @@ ${sliced}
   "weaknesses": ["論文的主要弱點，2–4 條"],
   "motions": [
     { "statement": "一條值得辯論的具體爭點命題（可被支持也可被反駁的完整敘述句）", "rationale": "為什麼這是爭點" }
-  ]${evidenceField}
+  ],
+  "critical_checklist": {
+    "research_question_clarity": { "verdict": "pass 或 partial 或 fail", "reason": "判定理由" },
+    "design_fit": { "verdict": "pass 或 partial 或 fail", "reason": "判定理由" },
+    "sample_adequacy": { "verdict": "pass 或 partial 或 fail", "reason": "判定理由" },
+    "data_reliability": { "verdict": "pass 或 partial 或 fail", "reason": "判定理由" },
+    "limitations_acknowledged": { "verdict": "pass 或 partial 或 fail", "reason": "判定理由" }
+  },
+  "unacknowledged_limitations": ["審查者認為重要、但作者未在論文中承認的限制（字串陣列，0–3 條，沒有就回傳空陣列）"]${evidenceField}
 }
 ${evidenceRules}
-motions 請給 2–4 條，聚焦在：結論是否過度延伸、方法選擇是否最優、效能提升的真正來源、可推廣性等實質爭議，避免空泛命題。`;
+motions 請給 2–4 條，聚焦在：結論是否過度延伸、方法選擇是否最優、效能提升的真正來源、可推廣性等實質爭議，避免空泛命題。
+
+critical_checklist 是批判性思考檢核，五項定義：
+- research_question_clarity：研究問題是否明確定義（問題陳述具體、範圍清楚、可被回答）。
+- design_fit：研究設計／方法是否適合回答該研究問題（方法再嚴謹，答錯問題也算 fail）。
+- sample_adequacy：樣本量／資料規模是否足以支撐結論（統計檢定力、資料集大小與多樣性）。
+- data_reliability：資料收集與測量是否可靠（來源、標註品質、測量工具、潛在偏差）。
+- limitations_acknowledged：作者是否誠實且充分地承認研究限制。
+判定標準：pass＝明確達標；partial＝部分達標或證據不足以確認；fail＝明確未達標。${isAbstractOnly ? "只有摘要可用時，無法確認的項目請判 partial 並在理由中註明。" : ""}
+
+unacknowledged_limitations 請對照「先前的重點分析」中作者自述的侷限性，列出你在 weaknesses 中發現、但作者並未承認的重要限制；作者都承認了就回傳空陣列。`;
 }

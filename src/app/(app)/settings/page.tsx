@@ -20,7 +20,16 @@ interface ProviderView {
 
 type Seats = Record<string, { providerId: string; model: string }>;
 
-const SEAT_ORDER = ["keypoints", "compare", "reviewer", "proponent", "opponent", "judge"] as const;
+const SEAT_ORDER = [
+  "keypoints",
+  "compare",
+  "reviewer",
+  "proponent",
+  "opponent",
+  "judge",
+  "judge2",
+  "judge3",
+] as const;
 const SEAT_LABEL: Record<string, string> = {
   keypoints: "找重點",
   compare: "比較",
@@ -28,6 +37,8 @@ const SEAT_LABEL: Record<string, string> = {
   proponent: "辯論正方",
   opponent: "辯論反方",
   judge: "辯論裁判",
+  judge2: "辯論裁判二",
+  judge3: "辯論裁判三",
 };
 
 const KIND_LABEL: Record<ProviderKind, string> = {

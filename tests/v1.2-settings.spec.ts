@@ -35,12 +35,12 @@ test.afterAll(() => {
 });
 
 test("設定 API：CRUD、key 永遠遮罩、claude-cli 內建不可覆寫", async ({ request }) => {
-  // 初始狀態：claude-cli 內建在列、六個座位有指派
+  // 初始狀態：claude-cli 內建在列、八個座位有指派（v1.7 起含合議庭 judge2/judge3）
   const before = await request.get(`${BASE_URL}/api/settings/llm`).then((r) => r.json());
   const builtin = before.providers.find((p: { id: string }) => p.id === "claude-cli");
   expect(builtin).toBeTruthy();
   expect(builtin.builtin).toBe(true);
-  for (const seat of ["keypoints", "compare", "reviewer", "proponent", "opponent", "judge"]) {
+  for (const seat of ["keypoints", "compare", "reviewer", "proponent", "opponent", "judge", "judge2", "judge3"]) {
     expect(before.seats[seat]?.providerId).toBeTruthy();
   }
 

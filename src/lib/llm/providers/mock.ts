@@ -3,13 +3,13 @@ import type { LlmProvider, ProviderConfig } from "@/lib/llm/types";
 /**
  * 測試/展示用 provider：不呼叫任何模型，依 prompt 內的 schema 標記回傳罐頭回應。
  * 用途：e2e 測試審查/辯論全流程而不燒訂閱額度或 API 費用。
- * 判別標記與各 prompt builder 的欄位名耦合（review 的 "motions"、judge 的 "winner"…），
+ * 判別標記與各 prompt builder 的欄位名耦合（review 的 "motions"、judge 的 "argument_quality"…），
  * 改 prompt schema 時記得同步這裡。
  */
 export function createMockProvider(config: ProviderConfig): LlmProvider {
   function answer(prompt: string): string {
     if (prompt.includes('"motions"')) return mockReview();
-    if (prompt.includes('"winner"')) return mockVerdict();
+    if (prompt.includes('"argument_quality"')) return mockVerdict();
     if (prompt.includes('"verdict"') && prompt.includes("陣列長度需等於")) {
       const m = /陣列長度需等於 (\d+)/.exec(prompt);
       return mockCompare(Number(m?.[1] ?? 2));
@@ -59,9 +59,20 @@ function mockReview(): string {
       { statement: "【mock】本文方法的效能提升主要來自資料規模而非架構創新", rationale: "消融實驗未能區分兩者貢獻" },
       { statement: "【mock】本文結論可推廣到其他領域", rationale: "僅在單一領域驗證，推廣性存疑" },
     ],
+    critical_checklist: {
+      research_question_clarity: { verdict: "pass", reason: "【mock】問題陳述具體且範圍清楚。" },
+      design_fit: { verdict: "pass", reason: "【mock】實驗設計直接對應研究問題。" },
+      sample_adequacy: { verdict: "partial", reason: "【mock】資料集規模可接受，但缺乏跨領域驗證。" },
+      data_reliability: { verdict: "pass", reason: "【mock】使用公開基準資料集，標註品質有保障。" },
+      limitations_acknowledged: { verdict: "fail", reason: "【mock】作者僅提及計算成本，未討論資料偏差。" },
+    },
+    unacknowledged_limitations: ["【mock】資料集偏單一領域造成的推廣性風險，作者未承認"],
     evidence: {
       scores: {
         methodological_rigor: [{ quote: "【mock】審查出處引文：實驗依三組對照設計進行", page: 1 }],
+      },
+      checklist: {
+        sample_adequacy: [{ quote: "【mock】檢核出處引文：我們在單一資料集上進行實驗", page: 2 }],
       },
       strengths: [[{ quote: "【mock】優點出處引文", page: 1 }], []],
       weaknesses: [[], []],
@@ -70,10 +81,17 @@ function mockReview(): string {
 }
 
 function mockVerdict(): string {
+  const entry = (p: number, o: number, label: string) => ({
+    proponent: { score: p, reason: `【mock】正方${label}評語。` },
+    opponent: { score: o, reason: `【mock】反方${label}評語。` },
+  });
   return JSON.stringify({
-    winner: "proponent",
-    proponent_score: 7,
-    opponent_score: 5,
+    criteria: {
+      argument_quality: entry(8, 6, "論點品質"),
+      evidence_use: entry(7, 5, "證據運用"),
+      rebuttal_strength: entry(7, 6, "反駁力度"),
+      responsiveness: entry(8, 6, "回應完整度"),
+    },
     reasoning: "【mock】正方立論緊扣論文證據並有效回應了反方對資料規模的質疑；反方雖指出推廣性限制，但未能提出具體反例。",
   });
 }

@@ -5,7 +5,7 @@ import path from "node:path";
 const BASE_URL = process.env.LR_BASE_URL ?? "http://localhost:3010";
 const DB_PATH = path.join(process.cwd(), "data", "litereview.db");
 
-const SEATS = ["keypoints", "compare", "reviewer", "proponent", "opponent", "judge"];
+const SEATS = ["keypoints", "compare", "reviewer", "proponent", "opponent", "judge", "judge2", "judge3"];
 const MOTION = "e2e 測試辯題：mock 方法的效能提升主要來自資料規模";
 
 let originalConfig: string | null = null;
@@ -77,13 +77,20 @@ test("辯論：mock 全流程（6 回合 + 判決）+ SSE 事件流 + 逐字稿 
   expect(sse).toContain('"type":"verdict"');
   expect(sse).toContain('"type":"done"');
 
-  // DB 落檔：6 回合逐字稿 + 判決
+  // DB 落檔：6 回合逐字稿 + v1.7 合議判決（未帶 judges 參數 → 預設三裁判）
   const detail = await request.get(`${BASE_URL}/api/debate/${debateId}`).then((r) => r.json());
   expect(detail.debate.status).toBe("done");
   expect(detail.debate.transcript.length).toBe(6);
   expect(detail.debate.transcript[0]).toMatchObject({ role: "proponent", phase: "opening" });
-  expect(detail.debate.verdict.winner).toBe("proponent");
-  expect(detail.debate.verdict.seatInfo).toContain("Mock E2E");
+  expect(detail.debate.verdict.finalWinner).toBe("proponent");
+  expect(detail.debate.verdict.judges.length).toBe(3);
+  expect(detail.debate.verdict.agreement).toBe("3/3");
+  expect(detail.debate.verdict.judges[0].seatInfo).toContain("Mock E2E");
+  // 分項總分由程式算：mock rubric (8+7+7+8)/4=7.5 vs (6+5+6+6)/4=5.8
+  expect(detail.debate.verdict.judges[0].proponentTotal).toBe(7.5);
+  expect(detail.debate.verdict.judges[0].opponentTotal).toBe(5.8);
+  // 引文硬指標：mock 發言每回合帶【E1】【E2】→ 每方 3 回合 × 2 次引用、2 條不重複
+  expect(detail.debate.verdict.citationStats.proponent).toMatchObject({ total: 6, unique: 2 });
 
   // 清單 API 有這場
   const list = await request.get(`${BASE_URL}/api/debate`).then((r) => r.json());
@@ -95,8 +102,11 @@ test("辯論：mock 全流程（6 回合 + 判決）+ SSE 事件流 + 逐字稿 
   await expect(main.getByText(MOTION)).toBeVisible();
   await expect(main.getByText("正方 · 立論")).toBeVisible();
   await expect(main.getByText("反方 · 結辯")).toBeVisible();
-  await expect(main.getByText("裁判判決")).toBeVisible();
+  await expect(main.getByText("合議庭判決")).toBeVisible();
+  await expect(main.getByTestId("agreement-badge")).toHaveText(/3\/3 一致/);
   await expect(main.getByText("正方勝出")).toBeVisible();
+  await expect(main.getByTestId("judge-verdict")).toHaveCount(3);
+  await expect(main.getByTestId("citation-stats")).toBeVisible();
   await page.screenshot({ path: "test-results/screenshots/debate-transcript.png", fullPage: true });
 
   // 發起頁：辯題輸入 + 論文勾選 + 歷史清單

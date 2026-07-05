@@ -5,7 +5,7 @@ import path from "node:path";
 const BASE_URL = process.env.LR_BASE_URL ?? "http://localhost:3010";
 const DB_PATH = path.join(process.cwd(), "data", "litereview.db");
 
-const SEATS = ["keypoints", "compare", "reviewer", "proponent", "opponent", "judge"];
+const SEATS = ["keypoints", "compare", "reviewer", "proponent", "opponent", "judge", "judge2", "judge3"];
 
 let originalConfig: string | null = null;
 
@@ -61,14 +61,18 @@ test("審查：API 產生 scorecard、UI 顯示五維分數與爭點", async ({ 
   });
   const { id } = await created.json();
 
-  // POST 審查（內部先跑 mock 找重點，再跑 mock 審查）
+  // POST 審查（內部先跑 mock 找重點，再跑 mock 審查）；forceRefresh 避免吃到舊 schema 的快取審查
   const res = await request
-    .post(`${BASE_URL}/api/review/${id}`, { data: {} })
+    .post(`${BASE_URL}/api/review/${id}`, { data: { forceRefresh: true } })
     .then((r) => r.json());
   expect(res.status).toBe("done");
   expect(res.review.data.scores.methodological_rigor.score).toBeGreaterThanOrEqual(1);
   expect(res.review.data.motions.length).toBeGreaterThan(0);
   expect(res.review.seatInfo).toContain("Mock E2E");
+  // v1.7 批判檢核：五問 verdict + 限制落差
+  expect(res.review.data.critical_checklist.sample_adequacy.verdict).toBe("partial");
+  expect(res.review.data.critical_checklist.limitations_acknowledged.verdict).toBe("fail");
+  expect(res.review.data.unacknowledged_limitations.length).toBeGreaterThan(0);
 
   // GET 拿存檔
   const saved = await request.get(`${BASE_URL}/api/review/${id}`).then((r) => r.json());
@@ -81,6 +85,10 @@ test("審查：API 產生 scorecard、UI 顯示五維分數與爭點", async ({ 
   await expect(main.getByText("方法嚴謹度")).toBeVisible({ timeout: 15000 });
   await expect(main.getByText("證據強度")).toBeVisible();
   await expect(main.getByText("可重現性")).toBeVisible();
+  // v1.7 批判檢核區：五問標題 + verdict 徽章 + 限制落差
+  await expect(main.getByText("批判檢核")).toBeVisible();
+  await expect(main.getByText("樣本量足以支撐結論")).toBeVisible();
+  await expect(main.getByText("作者未承認的限制")).toBeVisible();
   await expect(main.getByText("發起辯論").first()).toBeVisible();
   await page.screenshot({ path: "test-results/screenshots/review-scorecard.png", fullPage: true });
 

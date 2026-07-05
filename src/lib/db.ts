@@ -6,7 +6,7 @@ import type { PaperResult } from "./scholarly/types";
 import type { KeypointsData, EvidenceItem } from "./keypoints/parse";
 import type { CompareData } from "./compare/parse";
 import type { ReviewData } from "./review/parse";
-import type { DebateEvidenceRef, DebateTurn, DebateVerdict } from "./debate/parse";
+import type { AnyDebateVerdict, DebateEvidenceRef, DebateTurn, DebateVerdictV2 } from "./debate/parse";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const DB_PATH = path.join(DATA_DIR, "litereview.db");
@@ -480,7 +480,7 @@ export interface DebateRow {
   transcript: DebateTurn[];
   /** v1.6 起的引文庫；舊紀錄為 null（逐字稿本無【E#】標記，UI 原樣顯示即降級）。 */
   evidence: DebateEvidenceRef[] | null;
-  verdict: DebateVerdict | null;
+  verdict: AnyDebateVerdict | null;
   status: "running" | "done" | "failed";
   createdAt: string;
 }
@@ -508,7 +508,7 @@ export function updateDebateEvidence(id: string, evidence: DebateEvidenceRef[]) 
   db.prepare(`UPDATE debates SET evidence_json = ? WHERE id = ?`).run(JSON.stringify(evidence), id);
 }
 
-export function finishDebate(id: string, verdict: DebateVerdict) {
+export function finishDebate(id: string, verdict: DebateVerdictV2) {
   db.prepare(`UPDATE debates SET verdict_json = ?, status = 'done' WHERE id = ?`).run(
     JSON.stringify(verdict),
     id
@@ -550,7 +550,7 @@ export function getDebate(id: string): DebateRow | undefined {
     seats: JSON.parse(row.seats_json) as Record<string, string>,
     transcript: JSON.parse(row.transcript_json) as DebateTurn[],
     evidence: row.evidence_json ? (JSON.parse(row.evidence_json) as DebateEvidenceRef[]) : null,
-    verdict: row.verdict_json ? (JSON.parse(row.verdict_json) as DebateVerdict) : null,
+    verdict: row.verdict_json ? (JSON.parse(row.verdict_json) as AnyDebateVerdict) : null,
     status: row.status as DebateRow["status"],
     createdAt: row.created_at,
   };

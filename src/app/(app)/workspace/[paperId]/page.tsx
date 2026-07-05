@@ -30,6 +30,11 @@ interface ReviewScore {
   reason: string;
 }
 
+interface ChecklistEntry {
+  verdict: "pass" | "partial" | "fail";
+  reason: string;
+}
+
 interface ReviewData {
   paperId: string;
   data: {
@@ -37,8 +42,11 @@ interface ReviewData {
     strengths: string[];
     weaknesses: string[];
     motions: Array<{ statement: string; rationale: string }>;
+    critical_checklist?: Record<string, ChecklistEntry>;
+    unacknowledged_limitations?: string[];
     evidence?: {
       scores?: Record<string, EvidenceItem[]>;
+      checklist?: Record<string, EvidenceItem[]>;
       strengths?: EvidenceItem[][];
       weaknesses?: EvidenceItem[][];
     };
@@ -72,6 +80,28 @@ const SCORE_LABEL: Record<string, string> = {
   novelty: "新穎性",
   reproducibility: "可重現性",
   clarity: "寫作清晰度",
+};
+
+const CHECKLIST_ORDER = [
+  "research_question_clarity",
+  "design_fit",
+  "sample_adequacy",
+  "data_reliability",
+  "limitations_acknowledged",
+];
+
+const CHECKLIST_LABEL: Record<string, string> = {
+  research_question_clarity: "研究問題明確定義",
+  design_fit: "研究設計適合回答問題",
+  sample_adequacy: "樣本量足以支撐結論",
+  data_reliability: "資料收集可靠",
+  limitations_acknowledged: "作者承認研究限制",
+};
+
+const CHECKLIST_BADGE: Record<string, { label: string; className: string }> = {
+  pass: { label: "通過", className: "border-success/40 bg-success/10 text-success" },
+  partial: { label: "部分", className: "border-warning/40 bg-warning-soft text-warning" },
+  fail: { label: "未過", className: "border-error/40 bg-error/10 text-error" },
 };
 
 export default function PaperPage({ params }: { params: Promise<{ paperId: string }> }) {
@@ -533,7 +563,8 @@ function ReviewTab({
       <div className="mt-8">
         <p className="text-sm leading-[1.7] text-slate">
           審查會以審查委員的視角給出五維評分（方法嚴謹度、證據強度、新穎性、可重現性、清晰度）、
-          優缺點清單，以及可供辯論的爭點。
+          批判檢核五問（研究問題定義、設計適配、樣本量、資料可靠性、限制承認）、
+          優缺點清單與限制落差，以及可供辯論的爭點。
           {!hasKeypoints && "這篇論文還沒找過重點，執行審查時會先自動跑一次找重點。"}
         </p>
         {status === "failed" && <p className="mt-3 text-sm text-error">審查失敗：{error}</p>}
@@ -561,6 +592,8 @@ function ReviewTab({
   const dims = Object.entries(review.data.scores);
   const avg = Math.round((dims.reduce((acc, [, s]) => acc + s.score, 0) / dims.length) * 10) / 10;
   const evidence = review.data.evidence;
+  const checklist = review.data.critical_checklist;
+  const unacknowledged = review.data.unacknowledged_limitations;
 
   return (
     <div className="mt-4">
@@ -606,6 +639,57 @@ function ReviewTab({
           ))}
         </div>
       </div>
+
+      {/* 批判檢核（v1.7 起；舊審查資料沒有此欄就整區隱藏） */}
+      {checklist && (
+        <div className="mt-5 rounded-md border border-hairline bg-canvas p-5">
+          <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-steel">
+            批判檢核
+          </h3>
+          <div className="mt-3 flex flex-col divide-y divide-hairline">
+            {CHECKLIST_ORDER.filter((item) => checklist[item]).map((item) => {
+              const entry = checklist[item];
+              const badge = CHECKLIST_BADGE[entry.verdict] ?? CHECKLIST_BADGE.partial;
+              return (
+                <div key={item} className="flex items-start gap-3 py-2.5 first:pt-0 last:pb-0">
+                  <span
+                    className={`mt-0.5 inline-flex w-[44px] shrink-0 items-center justify-center rounded-xs border px-1.5 py-0.5 text-[11px] font-medium ${badge.className}`}
+                  >
+                    {badge.label}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-[13.5px] font-medium leading-[1.5]">{CHECKLIST_LABEL[item] ?? item}</p>
+                    <p className="mt-0.5 text-[12.5px] leading-[1.6] text-slate">
+                      <EvidenceHover items={evidence?.checklist?.[item]} onOpenPdf={onOpenPdf}>
+                        {entry.reason}
+                      </EvidenceHover>
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* 限制落差：審查者發現、但作者未承認的限制 */}
+      {unacknowledged && unacknowledged.length > 0 && (
+        <div className="mt-5 rounded-r-sm border-l-[3px] border-error bg-error/[0.06] px-4 py-3">
+          <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-error">
+            作者未承認的限制
+          </h3>
+          <ul className="mt-1.5 space-y-1">
+            {unacknowledged.map((s, i) => (
+              <li key={i} className="text-[13.5px] leading-[1.6]">
+                {s}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {unacknowledged && unacknowledged.length === 0 && checklist && (
+        <p className="mt-4 text-[12.5px] text-steel">審查發現的弱點均已由作者在論文中承認。</p>
+      )}
 
       {/* 優缺點 */}
       <div className="mt-5 grid gap-4 sm:grid-cols-2">

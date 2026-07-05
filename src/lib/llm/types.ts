@@ -34,7 +34,7 @@ export interface ProviderConfig {
   models: string[];
 }
 
-/** 六個「座位」：前兩個是既有功能，後四個是 v1.2 審查與辯論的角色。 */
+/** 八個「座位」：前兩個是既有功能，中四個是 v1.2 審查與辯論的角色，judge2/judge3 是 v1.7 合議庭（可指異質模型避免 self-preference bias）。 */
 export const SEAT_NAMES = [
   "keypoints",
   "compare",
@@ -42,6 +42,8 @@ export const SEAT_NAMES = [
   "proponent",
   "opponent",
   "judge",
+  "judge2",
+  "judge3",
 ] as const;
 
 export type SeatName = (typeof SEAT_NAMES)[number];
@@ -53,6 +55,8 @@ export const SEAT_LABEL: Record<SeatName, string> = {
   proponent: "辯論正方",
   opponent: "辯論反方",
   judge: "辯論裁判",
+  judge2: "辯論裁判二",
+  judge3: "辯論裁判三",
 };
 
 export interface SeatAssignment {

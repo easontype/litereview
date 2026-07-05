@@ -10,10 +10,14 @@ import {
   type DebatePaperContext,
 } from "./prompt";
 import {
+  aggregateVerdicts,
+  computeCitationStats,
   parseVerdictResponse,
+  usedEvidenceIds,
   type DebatePhase,
   type DebateRole,
   type DebateTurn,
+  type JudgeVerdict,
 } from "./parse";
 
 /** 「provider label · model」，逐字稿與判決卡顯示模型徽章用。 */
@@ -22,9 +26,12 @@ export function seatInfoLabel(seat: SeatName): string {
   return `${resolved.provider.label} · ${resolved.model}`;
 }
 
+/** 合議庭座位順序：judges=1 只用 judge，judges=3 用全部三席。 */
+const JUDGE_SEATS: SeatName[] = ["judge", "judge2", "judge3"];
+
 /**
  * 跑一整場辯論（非同步背景執行，呼叫端不 await）：
- * 正方立論 → 反方立論 → 交叉駁論 ×rounds → 雙方結辯 → 裁判判決。
+ * 正方立論 → 反方立論 → 交叉駁論 ×rounds → 雙方結辯 → 裁判判決（1 或 3 位獨立判決後程式聚合）。
  * 每回合經 resolveSeat 取當下座位設定、emit SSE 事件、增量存 transcript；
  * jobId 即 debateId。
  */
@@ -32,7 +39,8 @@ export async function runDebate(
   debateId: string,
   motion: string,
   paperIds: string[],
-  rounds: number
+  rounds: number,
+  judges: 1 | 3 = 3
 ): Promise<void> {
   try {
     emit(debateId, "stage", { message: "準備論文脈絡（找重點）…" });
@@ -71,7 +79,15 @@ export async function runDebate(
     const speak = async (role: DebateRole, phase: DebatePhase, round?: number) => {
       const seat = resolveSeat(role);
       const seatInfo = `${seat.provider.label} · ${seat.model}`;
-      const prompt = buildSpeechPrompt(motion, papers, transcript, role, phase, evidence);
+      const prompt = buildSpeechPrompt(
+        motion,
+        papers,
+        transcript,
+        role,
+        phase,
+        evidence,
+        usedEvidenceIds(transcript, role)
+      );
       const content = await generate(seat, prompt, {
         role,
         phase,
@@ -93,14 +109,23 @@ export async function runDebate(
     await speak("proponent", "closing");
     await speak("opponent", "closing");
 
-    emit(debateId, "stage", { message: "裁判評議中…" });
-    const judge = resolveSeat("judge");
-    const judgeInfo = `${judge.provider.label} · ${judge.model}`;
-    const raw = await generate(judge, buildVerdictPrompt(motion, transcript), {
-      role: "judge",
-      seatInfo: judgeInfo,
-    });
-    const verdict = parseVerdictResponse(raw, judgeInfo);
+    const verdictPrompt = buildVerdictPrompt(motion, transcript);
+    const judgeSeats = JUDGE_SEATS.slice(0, judges);
+    const judgeVerdicts: JudgeVerdict[] = [];
+    for (const [index, seatName] of judgeSeats.entries()) {
+      emit(debateId, "stage", {
+        message: judgeSeats.length > 1 ? `裁判 ${index + 1}/${judgeSeats.length} 評議中…` : "裁判評議中…",
+      });
+      const judge = resolveSeat(seatName);
+      const judgeInfo = `${judge.provider.label} · ${judge.model}`;
+      const raw = await generate(judge, verdictPrompt, {
+        role: "judge",
+        judgeIndex: index,
+        seatInfo: judgeInfo,
+      });
+      judgeVerdicts.push(parseVerdictResponse(raw, judgeInfo));
+    }
+    const verdict = aggregateVerdicts(judgeVerdicts, computeCitationStats(transcript));
 
     finishDebate(debateId, verdict);
     emit(debateId, "verdict", verdict);

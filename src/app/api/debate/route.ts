@@ -12,6 +12,7 @@ export async function POST(req: NextRequest) {
     motion?: unknown;
     paperIds?: unknown;
     rounds?: unknown;
+    judges?: unknown;
   };
 
   const motion = typeof body.motion === "string" ? body.motion.trim() : "";
@@ -28,16 +29,21 @@ export async function POST(req: NextRequest) {
   }
 
   const rounds = body.rounds === 2 ? 2 : 1;
+  const judges = body.judges === 1 ? 1 : 3;
 
-  const seats = {
+  const seats: Record<string, string> = {
     proponent: seatInfoLabel("proponent"),
     opponent: seatInfoLabel("opponent"),
     judge: seatInfoLabel("judge"),
   };
+  if (judges === 3) {
+    seats.judge2 = seatInfoLabel("judge2");
+    seats.judge3 = seatInfoLabel("judge3");
+  }
   const debateId = createDebate(motion, paperIds, seats);
   createJob(debateId);
   // 背景執行，不 await；錯誤已在 engine 內轉成 failDebate/failJob
-  void runDebate(debateId, motion, paperIds, rounds);
+  void runDebate(debateId, motion, paperIds, rounds, judges);
 
   return NextResponse.json({ debateId });
 }

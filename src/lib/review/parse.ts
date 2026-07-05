@@ -9,6 +9,7 @@ export interface ReviewScore {
 
 export interface ReviewEvidence {
   scores?: Partial<Record<(typeof SCORE_DIMENSIONS)[number], EvidenceItem[]>>;
+  checklist?: Partial<Record<ChecklistItemName, EvidenceItem[]>>;
   /** 與 strengths / weaknesses 索引對齊；沒有出處的項目是空陣列。 */
   strengths?: EvidenceItem[][];
   weaknesses?: EvidenceItem[][];
@@ -17,6 +18,13 @@ export interface ReviewEvidence {
 export interface ReviewMotion {
   statement: string;
   rationale: string;
+}
+
+export type ChecklistVerdict = "pass" | "partial" | "fail";
+
+export interface ChecklistEntry {
+  verdict: ChecklistVerdict;
+  reason: string;
 }
 
 export interface ReviewData {
@@ -30,6 +38,10 @@ export interface ReviewData {
   strengths: string[];
   weaknesses: string[];
   motions: ReviewMotion[];
+  /** v1.7 起：批判性思考五問檢核。舊資料沒有此欄，UI 需優雅降級。 */
+  critical_checklist?: Record<ChecklistItemName, ChecklistEntry>;
+  /** v1.7 起：審查者發現、但作者未承認的限制（限制落差）。 */
+  unacknowledged_limitations?: string[];
   /** v1.5 起：出處引文。舊資料沒有此欄，UI 需優雅降級。 */
   evidence?: ReviewEvidence;
 }
@@ -48,6 +60,30 @@ export const SCORE_LABEL: Record<(typeof SCORE_DIMENSIONS)[number], string> = {
   novelty: "新穎性",
   reproducibility: "可重現性",
   clarity: "寫作清晰度",
+};
+
+export const CHECKLIST_ITEMS = [
+  "research_question_clarity",
+  "design_fit",
+  "sample_adequacy",
+  "data_reliability",
+  "limitations_acknowledged",
+] as const;
+
+export type ChecklistItemName = (typeof CHECKLIST_ITEMS)[number];
+
+export const CHECKLIST_LABEL: Record<ChecklistItemName, string> = {
+  research_question_clarity: "研究問題明確定義",
+  design_fit: "研究設計適合回答問題",
+  sample_adequacy: "樣本量足以支撐結論",
+  data_reliability: "資料收集可靠",
+  limitations_acknowledged: "作者承認研究限制",
+};
+
+export const CHECKLIST_VERDICT_LABEL: Record<ChecklistVerdict, string> = {
+  pass: "通過",
+  partial: "部分",
+  fail: "未過",
 };
 
 /** parse 審查 LLM 回應，容錯處理 code fence 與前後多餘文字（仿 keypoints/parse.ts）。 */
@@ -89,6 +125,27 @@ export function parseReviewResponse(raw: string): ReviewData {
     : [];
   if (motions.length === 0) throw new Error("LLM 回應缺少 motions（可辯論爭點）");
 
+  const checklist = parsed.critical_checklist as
+    | Record<string, { verdict?: unknown; reason?: unknown }>
+    | undefined;
+  if (!checklist || typeof checklist !== "object") {
+    throw new Error("LLM 回應缺少 critical_checklist（批判檢核）");
+  }
+  for (const item of CHECKLIST_ITEMS) {
+    const entry = checklist[item];
+    if (
+      !entry ||
+      (entry.verdict !== "pass" && entry.verdict !== "partial" && entry.verdict !== "fail") ||
+      typeof entry.reason !== "string"
+    ) {
+      throw new Error(`LLM 回應缺少批判檢核項目或型別錯誤: ${item}`);
+    }
+  }
+
+  const unacknowledged = Array.isArray(parsed.unacknowledged_limitations)
+    ? parsed.unacknowledged_limitations.filter((s): s is string => typeof s === "string")
+    : [];
+
   const evidence = sanitizeReviewEvidence(parsed.evidence, strengths.length, weaknesses.length);
 
   return {
@@ -96,6 +153,8 @@ export function parseReviewResponse(raw: string): ReviewData {
     strengths,
     weaknesses,
     motions,
+    critical_checklist: checklist as unknown as ReviewData["critical_checklist"],
+    unacknowledged_limitations: unacknowledged,
     ...(evidence ? { evidence } : {}),
   };
 }
@@ -107,7 +166,7 @@ function sanitizeReviewEvidence(
   weaknessesLen: number
 ): ReviewEvidence | undefined {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
-  const obj = raw as { scores?: unknown; strengths?: unknown; weaknesses?: unknown };
+  const obj = raw as { scores?: unknown; checklist?: unknown; strengths?: unknown; weaknesses?: unknown };
   const out: ReviewEvidence = {};
 
   const scores = sanitizeEvidence(obj.scores);
@@ -117,6 +176,15 @@ function sanitizeReviewEvidence(
       if (scores[dim]) valid[dim] = scores[dim];
     }
     if (Object.keys(valid).length) out.scores = valid;
+  }
+
+  const checklist = sanitizeEvidence(obj.checklist);
+  if (checklist) {
+    const valid: NonNullable<ReviewEvidence["checklist"]> = {};
+    for (const item of CHECKLIST_ITEMS) {
+      if (checklist[item]) valid[item] = checklist[item];
+    }
+    if (Object.keys(valid).length) out.checklist = valid;
   }
 
   const alignList = (value: unknown, len: number): EvidenceItem[][] | undefined => {

@@ -43,6 +43,7 @@ function DebateInner() {
   const [motion, setMotion] = useState(presetMotion ?? "");
   const [selected, setSelected] = useState<string[]>(presetPaperId ? [presetPaperId] : []);
   const [rounds, setRounds] = useState<1 | 2>(1);
+  const [judges, setJudges] = useState<1 | 3>(3);
   const [status, setStatus] = useState<"idle" | "starting" | "failed">("idle");
   const [error, setError] = useState<string | null>(null);
 
@@ -70,7 +71,7 @@ function DebateInner() {
       const res = await fetch("/api/debate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ motion, paperIds: selected, rounds }),
+        body: JSON.stringify({ motion, paperIds: selected, rounds, judges }),
       });
       const json = await res.json();
       if (!res.ok) {
@@ -164,6 +165,17 @@ function DebateInner() {
           >
             <option value={1}>1 輪</option>
             <option value={2}>2 輪</option>
+          </select>
+        </label>
+        <label className="flex items-center gap-2 text-xs text-slate">
+          裁判團
+          <select
+            value={judges}
+            onChange={(e) => setJudges(Number(e.target.value) === 1 ? 1 : 3)}
+            className="rounded-sm border border-hairline bg-canvas px-2 py-1 text-xs outline-none"
+          >
+            <option value={3}>三裁判合議</option>
+            <option value={1}>單裁判</option>
           </select>
         </label>
         <span className="text-xs text-steel">
