@@ -7,6 +7,7 @@ import type { KeypointsData, EvidenceItem } from "./keypoints/parse";
 import type { CompareData } from "./compare/parse";
 import type { ReviewData } from "./review/parse";
 import type { AnyDebateVerdict, DebateEvidenceRef, DebateTurn, DebateVerdictV2 } from "./debate/parse";
+import type { ChatMessageMeta } from "./chat/types";
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const DB_PATH = path.join(DATA_DIR, "litereview.db");
@@ -93,6 +94,27 @@ export function ensureSchema() {
       page_count INTEGER,
       created_at TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS chats (
+      id TEXT PRIMARY KEY,
+      title TEXT,
+      provider_id TEXT,
+      model TEXT,
+      paper_ids TEXT,
+      created_at TEXT,
+      updated_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS chat_messages (
+      id TEXT PRIMARY KEY,
+      chat_id TEXT REFERENCES chats(id),
+      role TEXT,
+      content TEXT,
+      images_json TEXT,
+      meta_json TEXT,
+      created_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_chat_messages_chat ON chat_messages(chat_id);
 
     CREATE TABLE IF NOT EXISTS journal_ranks (
       issn TEXT,
@@ -566,4 +588,123 @@ export function listDebates(): DebateListItem[] {
     const titles = paperIds.map((pid) => (titleStmt.get(pid) as { title: string } | undefined)?.title ?? pid);
     return { id: r.id, motion: r.motion, paperIds, titles, status: r.status, createdAt: r.created_at };
   });
+}
+
+export interface ChatListItem {
+  id: string;
+  title: string;
+  updatedAt: string;
+}
+
+export interface ChatRow {
+  id: string;
+  title: string;
+  providerId: string;
+  model: string;
+  paperIds: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ChatMessageRow {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  images: string[];
+  meta: ChatMessageMeta | null;
+  createdAt: string;
+}
+
+export function createChat(title: string, providerId: string, model: string, paperIds: string[]): string {
+  const id = createHash("sha1").update(`chat:${Date.now()}:${Math.random()}`).digest("hex").slice(0, 16);
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO chats (id, title, provider_id, model, paper_ids, created_at, updated_at)
+     VALUES (@id, @title, @providerId, @model, @paperIds, @now, @now)`
+  ).run({ id, title, providerId, model, paperIds: JSON.stringify(paperIds), now });
+  return id;
+}
+
+export function listChats(): ChatListItem[] {
+  return db
+    .prepare(`SELECT id, title, updated_at as updatedAt FROM chats ORDER BY updated_at DESC`)
+    .all() as ChatListItem[];
+}
+
+export function getChat(id: string): ChatRow | undefined {
+  const row = db
+    .prepare(
+      `SELECT id, title, provider_id as providerId, model, paper_ids, created_at as createdAt, updated_at as updatedAt
+       FROM chats WHERE id = ?`
+    )
+    .get(id) as (Omit<ChatRow, "paperIds"> & { paper_ids: string }) | undefined;
+  if (!row) return undefined;
+  const { paper_ids, ...rest } = row;
+  return { ...rest, paperIds: JSON.parse(paper_ids) as string[] };
+}
+
+export function updateChat(
+  id: string,
+  patch: Partial<Pick<ChatRow, "title" | "providerId" | "model" | "paperIds">>
+) {
+  const current = getChat(id);
+  if (!current) return;
+  const next = { ...current, ...patch };
+  db.prepare(
+    `UPDATE chats SET title = ?, provider_id = ?, model = ?, paper_ids = ?, updated_at = ? WHERE id = ?`
+  ).run(next.title, next.providerId, next.model, JSON.stringify(next.paperIds), new Date().toISOString(), id);
+}
+
+export function deleteChat(id: string) {
+  db.prepare(`DELETE FROM chat_messages WHERE chat_id = ?`).run(id);
+  db.prepare(`DELETE FROM chats WHERE id = ?`).run(id);
+}
+
+export function appendChatMessage(
+  chatId: string,
+  role: "user" | "assistant",
+  content: string,
+  images: string[] = [],
+  meta: ChatMessageMeta | null = null
+): string {
+  const id = createHash("sha1").update(`msg:${chatId}:${Date.now()}:${Math.random()}`).digest("hex").slice(0, 16);
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO chat_messages (id, chat_id, role, content, images_json, meta_json, created_at)
+     VALUES (@id, @chatId, @role, @content, @imagesJson, @metaJson, @now)`
+  ).run({
+    id,
+    chatId,
+    role,
+    content,
+    imagesJson: JSON.stringify(images),
+    metaJson: meta ? JSON.stringify(meta) : null,
+    now,
+  });
+  db.prepare(`UPDATE chats SET updated_at = ? WHERE id = ?`).run(now, chatId);
+  return id;
+}
+
+export function listChatMessages(chatId: string): ChatMessageRow[] {
+  const rows = db
+    .prepare(
+      `SELECT id, role, content, images_json, meta_json, created_at as createdAt
+       FROM chat_messages WHERE chat_id = ? ORDER BY created_at ASC, rowid ASC`
+    )
+    .all(chatId) as Array<{
+    id: string;
+    role: "user" | "assistant";
+    content: string;
+    images_json: string | null;
+    meta_json: string | null;
+    createdAt: string;
+  }>;
+  return rows.map((r) => ({
+    id: r.id,
+    role: r.role,
+    content: r.content,
+    images: r.images_json ? (JSON.parse(r.images_json) as string[]) : [],
+    meta: r.meta_json ? (JSON.parse(r.meta_json) as ChatMessageMeta) : null,
+    createdAt: r.createdAt,
+  }));
 }

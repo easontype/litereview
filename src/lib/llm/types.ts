@@ -14,6 +14,16 @@ export interface ChatOptions {
   timeoutMs?: number;
 }
 
+/** 多輪對話訊息的結構化內容：文字或 base64 圖片（v1.8 Chat 傳圖用）。 */
+export type ChatContentPart =
+  | { type: "text"; text: string }
+  | { type: "image"; mimeType: string; data: string };
+
+export interface ChatTurnMessage {
+  role: "user" | "assistant";
+  content: string | ChatContentPart[];
+}
+
 export interface LlmProvider {
   id: string;
   kind: ProviderKind;
@@ -21,6 +31,11 @@ export interface LlmProvider {
   chat(prompt: string, options: ChatOptions): Promise<string>;
   /** 逐字串流（可選）：有實作的 provider 在辯論等場景提供 token 級輸出；沒有就退回 chat()。 */
   chatStream?(prompt: string, options: ChatOptions): AsyncIterable<string>;
+  /**
+   * 多輪對話串流（可選）：吃結構化訊息（含圖片），逐字 yield。
+   * 沒實作的 provider 由 src/lib/llm/chat.ts 把歷史序列化成單 prompt 退回 chatStream/chat（不支援圖片）。
+   */
+  chatMessages?(messages: ChatTurnMessage[], options: ChatOptions): AsyncIterable<string>;
 }
 
 /** 存在 settings 表 llm_config JSON 裡的 provider 描述。 */

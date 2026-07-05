@@ -41,6 +41,24 @@ export function createMockProvider(config: ProviderConfig): LlmProvider {
         },
       };
     },
+    chatMessages(messages) {
+      // v1.8 Chat 罐頭回應：有圖片時回不同內容，供 e2e 斷言傳圖路徑
+      const hasImage = messages.some(
+        (m) => Array.isArray(m.content) && m.content.some((p) => p.type === "image")
+      );
+      const full = hasImage
+        ? "【mock】已收到圖片：這是模擬的看圖回覆。"
+        : "【mock】這是模擬的對話回覆：已讀取你提供的脈絡，請繼續提問。";
+      return {
+        async *[Symbol.asyncIterator]() {
+          const step = 6;
+          for (let i = 0; i < full.length; i += step) {
+            await new Promise((r) => setTimeout(r, 12));
+            yield full.slice(i, i + step);
+          }
+        },
+      };
+    },
   };
 }
 

@@ -16,29 +16,35 @@ export function startCompareJob(paperIds: string[]): string {
   return jobId;
 }
 
+/** 比較的執行本體（job 與 Chat /compare 命令共用），回傳存檔後的 compareId。 */
+export async function runCompare(
+  paperIds: string[],
+  emitStage: (stage: string, message: string) => void
+): Promise<string> {
+  const papers = [];
+  for (let i = 0; i < paperIds.length; i++) {
+    const id = paperIds[i];
+    const paper = getPaper(id);
+    if (!paper) throw new Error(`找不到論文: ${id}`);
+    emitStage("keypoints", `找重點（${i + 1}/${paperIds.length}）：${paper.title.slice(0, 40)}…`);
+    const keypoints = await ensureKeypoints(id);
+    papers.push({ id, title: paper.title, keypoints });
+  }
+
+  emitStage("comparing", "五維比較分析中…");
+  const prompt = buildComparePrompt(papers);
+  const { refs } = buildCompareEvidenceIndex(papers);
+  const seat = resolveSeat("compare");
+  const raw = await seat.provider.chat(prompt, { model: seat.model });
+  const result = parseCompareResponse(raw, papers.length, refs);
+  return saveComparison(paperIds, result);
+}
+
 async function run(jobId: string, paperIds: string[]): Promise<void> {
   try {
-    const papers = [];
-    for (let i = 0; i < paperIds.length; i++) {
-      const id = paperIds[i];
-      const paper = getPaper(id);
-      if (!paper) throw new Error(`找不到論文: ${id}`);
-      emit(jobId, "stage", {
-        stage: "keypoints",
-        message: `找重點（${i + 1}/${paperIds.length}）：${paper.title.slice(0, 40)}…`,
-      });
-      const keypoints = await ensureKeypoints(id);
-      papers.push({ id, title: paper.title, keypoints });
-    }
-
-    emit(jobId, "stage", { stage: "comparing", message: "五維比較分析中…" });
-    const prompt = buildComparePrompt(papers);
-    const { refs } = buildCompareEvidenceIndex(papers);
-    const seat = resolveSeat("compare");
-    const raw = await seat.provider.chat(prompt, { model: seat.model });
-    const result = parseCompareResponse(raw, papers.length, refs);
-    const compareId = saveComparison(paperIds, result);
-
+    const compareId = await runCompare(paperIds, (stage, message) =>
+      emit(jobId, "stage", { stage, message })
+    );
     completeJob(jobId, { compareId });
   } catch (err) {
     failJob(jobId, err instanceof Error ? err.message : String(err));

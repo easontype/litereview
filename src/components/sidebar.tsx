@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { Books, Columns, UploadSimple, SidebarSimple, BookOpen, Medal, GearSix, Scales, SquaresFour, Graph, FilePdf } from "@phosphor-icons/react";
+import { Books, Columns, UploadSimple, SidebarSimple, BookOpen, Medal, GearSix, Scales, SquaresFour, Graph, FilePdf, ChatCircleText } from "@phosphor-icons/react";
 import { ZoteroImportDialog } from "@/components/zotero-import";
 
 interface SidebarPaper {
@@ -27,6 +27,12 @@ interface SidebarDebate {
   createdAt: string;
 }
 
+interface SidebarChat {
+  id: string;
+  title: string;
+  updatedAt: string;
+}
+
 function subscribeSidebarToggle(callback: () => void) {
   window.addEventListener("lr:sidebar-toggle", callback);
   return () => window.removeEventListener("lr:sidebar-toggle", callback);
@@ -39,6 +45,7 @@ export function Sidebar() {
   const [papers, setPapers] = useState<SidebarPaper[] | null>(null);
   const [comparisons, setComparisons] = useState<SidebarComparison[] | null>(null);
   const [debates, setDebates] = useState<SidebarDebate[] | null>(null);
+  const [chats, setChats] = useState<SidebarChat[] | null>(null);
   const [zoteroOpen, setZoteroOpen] = useState(false);
   const collapsed = useSyncExternalStore(
     subscribeSidebarToggle,
@@ -58,6 +65,10 @@ export function Sidebar() {
     fetch("/api/debate")
       .then((res) => res.json())
       .then((json) => setDebates(json.debates))
+      .catch(() => {});
+    fetch("/api/chat")
+      .then((res) => res.json())
+      .then((json) => setChats(json.chats))
       .catch(() => {});
   }, []);
 
@@ -200,6 +211,27 @@ export function Sidebar() {
                 {debate.status === "running" ? "進行中" : debate.status === "failed" ? "失敗" : "已判決"} ·{" "}
                 {debate.createdAt.slice(5, 10)}
               </span>
+            </span>
+          </SidebarLink>
+        ))}
+      </div>
+
+      <div className="mt-4">
+        <Link
+          href="/chat"
+          className={`flex items-center gap-1.5 rounded-sm px-2 py-1 text-xs font-semibold text-steel transition-colors hover:bg-black/[0.045] ${
+            pathname === "/chat" ? "text-ink" : ""
+          }`}
+        >
+          <ChatCircleText size={15} className="shrink-0" />
+          對話
+          {chats && <span className="ml-auto font-mono text-[11px] font-normal">{chats.length}</span>}
+        </Link>
+        {chats?.slice(0, 6).map((chat) => (
+          <SidebarLink key={chat.id} href={`/chat/${chat.id}`} active={pathname === `/chat/${chat.id}`}>
+            <span className="flex min-w-0 flex-1 flex-col items-start">
+              <span className="max-w-full truncate text-[13px]">{chat.title}</span>
+              <span className="font-mono text-[11px] text-steel">{chat.updatedAt.slice(5, 10)}</span>
             </span>
           </SidebarLink>
         ))}

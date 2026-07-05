@@ -15,6 +15,7 @@ import {
   Sparkle,
   ArrowRight,
   FilePdf,
+  ChatCircleText,
 } from "@phosphor-icons/react";
 
 interface PaletteItemPaper {
@@ -32,6 +33,7 @@ interface JournalHit {
 const NAV: Array<{ href: string; label: string; keywords: string; Icon: typeof Books }> = [
   { href: "/dashboard", label: "儀表板", keywords: "dashboard home 首頁", Icon: SquaresFour },
   { href: "/workspace", label: "工作區", keywords: "workspace papers 論文", Icon: Books },
+  { href: "/chat", label: "對話", keywords: "chat 對話 聊天", Icon: ChatCircleText },
   { href: "/pdfs", label: "PDF 閱覽", keywords: "pdf viewer 閱覽", Icon: FilePdf },
   { href: "/compare", label: "比較", keywords: "compare 比較", Icon: Columns },
   { href: "/debate", label: "辯論", keywords: "debate 辯論", Icon: Scales },
@@ -111,6 +113,19 @@ export function CommandPalette() {
     window.dispatchEvent(new Event("lr:sidebar-toggle"));
   }
 
+  function startNewChat() {
+    setOpen(false);
+    fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
+      .then((res) => res.json())
+      .then((json) => {
+        if (json.id) {
+          window.dispatchEvent(new Event("lr:refresh"));
+          router.push(`/chat/${json.id}`);
+        }
+      })
+      .catch(() => {});
+  }
+
   function startKeypoints(paperId: string) {
     setOpen(false);
     // 先開 job 再跳頁；論文頁載入時會偵測進行中 job 並掛上 SSE（job endpoint 會去重）
@@ -165,6 +180,12 @@ export function CommandPalette() {
                   <ArrowRight size={13} className="ml-auto text-steel opacity-0 group-data-[selected=true]:opacity-100" />
                 </Command.Item>
               ))}
+              {(!q || "開新對話 new chat 聊天".includes(q)) && (
+                <Command.Item value="action-new-chat" onSelect={startNewChat} className={ITEM_CLS}>
+                  <ChatCircleText size={16} className="shrink-0 text-slate" />
+                  <span className="text-sm">開新對話</span>
+                </Command.Item>
+              )}
               {showSidebarToggle && (
                 <Command.Item value="action-sidebar" onSelect={toggleSidebar} className={ITEM_CLS}>
                   <SidebarSimple size={16} className="shrink-0 text-slate" />
