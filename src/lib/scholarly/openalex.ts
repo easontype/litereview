@@ -18,6 +18,11 @@ interface OpenAlexWork {
   open_access?: { oa_url?: string | null } | null;
 }
 
+/** OpenAlex API base：可用 env 覆蓋（e2e 指向本機 fixture server）。 */
+export function openAlexBase(): string {
+  return process.env.OPENALEX_BASE_URL?.replace(/\/$/, "") || "https://api.openalex.org";
+}
+
 function contactParam(): string {
   const email = process.env.CONTACT_EMAIL;
   return email ? `mailto=${encodeURIComponent(email)}` : "";
@@ -97,7 +102,7 @@ export async function searchOpenAlex(query: string, limit: number): Promise<Pape
     per_page: String(limit),
   });
   const contact = contactParam();
-  const res = await fetch(`https://api.openalex.org/works?${params.toString()}${contact ? "&" + contact : ""}`);
+  const res = await fetch(`${openAlexBase()}/works?${params.toString()}${contact ? "&" + contact : ""}`);
   if (!res.ok) throw new Error(`OpenAlex 搜尋失敗: ${res.status}`);
 
   const json = (await res.json()) as { results?: OpenAlexWork[] };
@@ -108,10 +113,48 @@ export async function searchOpenAlex(query: string, limit: number): Promise<Pape
 /** DOI regex 命中時使用：直接查單一 work。 */
 export async function fetchOpenAlexByDoi(doi: string): Promise<PaperResult | null> {
   const contact = contactParam();
-  const res = await fetch(`https://api.openalex.org/works/doi:${encodeURIComponent(doi)}${contact ? "?" + contact : ""}`);
+  const res = await fetch(`${openAlexBase()}/works/doi:${encodeURIComponent(doi)}${contact ? "?" + contact : ""}`);
   if (!res.ok) return null;
 
   const work = (await res.json()) as OpenAlexWork;
   const [paper] = await attachQuality([mapWork(work)]);
   return paper;
+}
+
+/** 從 OpenAlex 的完整 id URL（"https://openalex.org/W123"）取短 id（"W123"）。 */
+export function shortWorkId(idUrl: string): string {
+  return idUrl.replace(/^https?:\/\/openalex\.org\//i, "");
+}
+
+/**
+ * 把論文解析成 OpenAlex work id：DOI 優先，無 DOI 時用 arXiv 的 DataCite DOI
+ * （10.48550/arXiv.{id}）查；早期 arXiv 論文（約 2021 前）OpenAlex 沒索引 DataCite DOI，
+ * 再退 landing_page_url 精準過濾（恰一筆才收，非模糊比對）。
+ * 查不到回 null（呼叫端存快取，避免重辯重查）。
+ */
+export async function resolveOpenAlexWorkId(input: {
+  doi?: string | null;
+  arxivId?: string | null;
+}): Promise<string | null> {
+  const contact = contactParam();
+  const doi = input.doi ?? (input.arxivId ? `10.48550/arXiv.${input.arxivId}` : null);
+  if (doi) {
+    const res = await fetch(
+      `${openAlexBase()}/works/doi:${encodeURIComponent(doi)}${contact ? "?" + contact : ""}`
+    );
+    if (res.ok) {
+      const work = (await res.json()) as { id?: string };
+      if (work.id) return shortWorkId(work.id);
+    }
+  }
+  if (input.arxivId) {
+    // 注意 OpenAlex 存的 arXiv landing page 是 http 而非 https
+    const url = `${openAlexBase()}/works?filter=locations.landing_page_url:http://arxiv.org/abs/${input.arxivId}&select=id&per-page=2${contact ? "&" + contact : ""}`;
+    const res = await fetch(url);
+    if (res.ok) {
+      const json = (await res.json()) as { results?: { id?: string }[] };
+      if (json.results?.length === 1 && json.results[0].id) return shortWorkId(json.results[0].id);
+    }
+  }
+  return null;
 }

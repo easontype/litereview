@@ -8,6 +8,8 @@ interface WorkspaceItem {
   id: string;
   title: string;
   hasKeypoints: boolean;
+  arxivId: string | null;
+  doi: string | null;
 }
 
 interface DebateListItem {
@@ -44,6 +46,7 @@ function DebateInner() {
   const [selected, setSelected] = useState<string[]>(presetPaperId ? [presetPaperId] : []);
   const [rounds, setRounds] = useState<1 | 2>(1);
   const [judges, setJudges] = useState<1 | 3>(3);
+  const [useExternalEvidence, setUseExternalEvidence] = useState(false);
   const [status, setStatus] = useState<"idle" | "starting" | "failed">("idle");
   const [error, setError] = useState<string | null>(null);
 
@@ -59,7 +62,7 @@ function DebateInner() {
   function toggle(id: string) {
     setSelected((prev) => {
       if (prev.includes(id)) return prev.filter((x) => x !== id);
-      if (prev.length >= 6) return prev;
+      if (prev.length >= 3) return prev;
       return [...prev, id];
     });
   }
@@ -71,7 +74,13 @@ function DebateInner() {
       const res = await fetch("/api/debate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ motion, paperIds: selected, rounds, judges }),
+        body: JSON.stringify({
+          motion,
+          paperIds: selected,
+          rounds,
+          judges,
+          useExternalEvidence: useExternalEvidence && !externalDisabled,
+        }),
       });
       const json = await res.json();
       if (!res.ok) {
@@ -87,7 +96,13 @@ function DebateInner() {
     }
   }
 
-  const canStart = motion.trim().length > 0 && selected.length >= 1 && selected.length <= 6;
+  const canStart = motion.trim().length > 0 && selected.length >= 1 && selected.length <= 3;
+
+  // 外部證據庫走 OpenAlex 引文圖譜：任一所選論文無 DOI/arXiv ID 就無法檢索，停用勾選
+  const papersWithoutId = (items ?? []).filter(
+    (item) => selected.includes(item.id) && !item.doi && !item.arxivId
+  );
+  const externalDisabled = selected.length === 0 || papersWithoutId.length > 0;
 
   return (
     <div className="mx-auto w-full max-w-[720px] px-8 pb-24 pt-10">
@@ -114,7 +129,7 @@ function DebateInner() {
       {/* ── 論文選擇 ── */}
       <div className="mt-7">
         <label className="font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-slate">
-          論文（1–6 篇）
+          論文（1–3 篇）
         </label>
         {items && items.length === 0 && (
           <p className="mt-3 text-sm text-steel">工作區還沒有論文——先上傳 PDF 或從 Zotero 匯入。</p>
@@ -128,7 +143,7 @@ function DebateInner() {
                     type="checkbox"
                     checked={selected.includes(item.id)}
                     onChange={() => toggle(item.id)}
-                    disabled={!selected.includes(item.id) && selected.length >= 6}
+                    disabled={!selected.includes(item.id) && selected.length >= 3}
                     className="h-[15px] w-[15px] shrink-0 accent-primary"
                   />
                   <span className="font-serif text-[15px] font-semibold leading-[1.35]">
@@ -144,6 +159,34 @@ function DebateInner() {
             ))}
           </ul>
         )}
+      </div>
+
+      {/* ── 外部證據庫 ── */}
+      <div className="mt-6 rounded-md border border-hairline bg-surface px-4 py-3">
+        <label className={`flex items-start gap-3 ${externalDisabled ? "cursor-not-allowed" : "cursor-pointer"}`}>
+          <input
+            type="checkbox"
+            data-testid="external-evidence-toggle"
+            checked={useExternalEvidence && !externalDisabled}
+            onChange={(e) => setUseExternalEvidence(e.target.checked)}
+            disabled={externalDisabled}
+            className="mt-0.5 h-[15px] w-[15px] shrink-0 accent-primary disabled:cursor-not-allowed"
+          />
+          <span>
+            <span className={`text-sm font-medium ${externalDisabled ? "text-steel" : ""}`}>
+              外部證據庫
+            </span>
+            <span className="mt-0.5 block text-xs leading-[1.6] text-steel">
+              從被辯論文的引文圖譜（OpenAlex）檢索文獻，只留 Q1/Q2 期刊或 CORE A*/A 會議，
+              經相關性過濾後編成 6–8 張證據卡供正反方與裁判引用。建庫約需 20–40 秒。
+            </span>
+            {papersWithoutId.length > 0 && (
+              <span className="mt-1 block text-xs text-warning" data-testid="external-evidence-reason">
+                「{papersWithoutId[0].title || "（無標題）"}」無 DOI/arXiv ID，無法檢索引文圖譜。
+              </span>
+            )}
+          </span>
+        </label>
       </div>
 
       {/* ── 駁論輪數 + 開始 ── */}
@@ -179,7 +222,7 @@ function DebateInner() {
           </select>
         </label>
         <span className="text-xs text-steel">
-          已選 {selected.length} / 6 篇 · 未分析的論文會先自動跑「找重點」
+          已選 {selected.length} / 3 篇 · 未分析的論文會先自動跑「找重點」
         </span>
       </div>
 

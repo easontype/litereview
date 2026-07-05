@@ -13,6 +13,7 @@ export async function POST(req: NextRequest) {
     paperIds?: unknown;
     rounds?: unknown;
     judges?: unknown;
+    useExternalEvidence?: unknown;
   };
 
   const motion = typeof body.motion === "string" ? body.motion.trim() : "";
@@ -21,8 +22,8 @@ export async function POST(req: NextRequest) {
   const paperIds = Array.isArray(body.paperIds)
     ? body.paperIds.filter((id): id is string => typeof id === "string")
     : [];
-  if (paperIds.length < 1 || paperIds.length > 6) {
-    return NextResponse.json({ error: "請選擇 1–6 篇論文" }, { status: 400 });
+  if (paperIds.length < 1 || paperIds.length > 3) {
+    return NextResponse.json({ error: "請選擇 1–3 篇論文" }, { status: 400 });
   }
   for (const id of paperIds) {
     if (!getPaper(id)) return NextResponse.json({ error: `找不到論文: ${id}` }, { status: 404 });
@@ -30,6 +31,7 @@ export async function POST(req: NextRequest) {
 
   const rounds = body.rounds === 2 ? 2 : 1;
   const judges = body.judges === 1 ? 1 : 3;
+  const useExternalEvidence = body.useExternalEvidence === true;
 
   const seats: Record<string, string> = {
     proponent: seatInfoLabel("proponent"),
@@ -43,7 +45,7 @@ export async function POST(req: NextRequest) {
   const debateId = createDebate(motion, paperIds, seats);
   createJob(debateId);
   // 背景執行，不 await；錯誤已在 engine 內轉成 failDebate/failJob
-  void runDebate(debateId, motion, paperIds, rounds, judges);
+  void runDebate(debateId, motion, paperIds, rounds, judges, useExternalEvidence);
 
   return NextResponse.json({ debateId });
 }

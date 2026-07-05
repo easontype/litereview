@@ -39,6 +39,29 @@ export interface DebateEvidenceRef {
   page: number | null;
 }
 
+/**
+ * v1.9 外部證據庫的一張證據卡：從被辯論文的 OpenAlex 引文圖譜檢索、
+ * 經期刊分級（Q1/Q2、CORE A*、A）與 LLM 相關性過濾後入庫。
+ * 辯手行文以【X1】這類標記回引（與內部引文【E#】區隔）；正反方與裁判拿同一份。
+ */
+export interface ExternalEvidenceCard {
+  /** "X1" 起全場遞增。 */
+  id: string;
+  /** OpenAlex work id（如 "W2741809807"）。 */
+  workId: string;
+  title: string;
+  /** 摘要逐字引用（abstract_inverted_index 還原，不經 LLM 改寫）。 */
+  abstract: string;
+  venue: string | null;
+  year: number | null;
+  doi: string | null;
+  /** 分級標籤（"Q1" / "Q2" / "A*" / "A"）。 */
+  rank: string;
+  citedByCount: number | null;
+  /** 與辯題的關聯註記（相關性過濾 LLM 產出，一句話）。 */
+  relevance: string;
+}
+
 /** v1.6 以前的單裁判判決（僅供舊紀錄降級顯示；新判決一律是 DebateVerdictV2）。 */
 export interface DebateVerdict {
   winner: DebateRole | "draw";

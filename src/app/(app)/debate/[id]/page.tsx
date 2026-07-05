@@ -22,6 +22,20 @@ interface DebateEvidenceRef {
   page: number | null;
 }
 
+/** v1.9 外部證據庫卡片（引文圖譜檢索 + 期刊分級 + 相關性過濾）。 */
+interface ExternalEvidenceCard {
+  id: string;
+  workId: string;
+  title: string;
+  abstract: string;
+  venue: string | null;
+  year: number | null;
+  doi: string | null;
+  rank: string;
+  citedByCount: number | null;
+  relevance: string;
+}
+
 /** v1.6 以前的單裁判判決（舊紀錄降級顯示用）。 */
 interface LegacyVerdict {
   winner: "proponent" | "opponent" | "draw";
@@ -82,35 +96,106 @@ interface DebateMeta {
 const ROLE_LABEL = { proponent: "正方", opponent: "反方" } as const;
 const PHASE_LABEL = { opening: "立論", rebuttal: "駁論", closing: "結辯" } as const;
 
-const EVIDENCE_MARK_RE = /(【E\d+】)/g;
+const EVIDENCE_MARK_RE = /(【[EX]\d+】)/g;
+
+/** 外部證據卡的 hover 浮層（與 EvidenceHover 同樣的 group-hover 模式，內容換成卡片出處）。 */
+function ExternalEvidenceHover({
+  card,
+  children,
+}: {
+  card: ExternalEvidenceCard;
+  children: React.ReactNode;
+}) {
+  return (
+    <span className="group relative inline">
+      <span
+        tabIndex={0}
+        className="cursor-help underline decoration-hairline-strong decoration-dotted underline-offset-4 outline-none transition-colors group-hover:decoration-primary focus-visible:decoration-primary"
+      >
+        {children}
+      </span>
+      {/* pt-2 讓滑鼠能從觸發文字滑進浮層而不斷開 hover */}
+      <span className="pointer-events-none absolute left-0 top-full z-30 hidden w-[min(380px,80vw)] pt-2 group-focus-within:pointer-events-auto group-focus-within:block group-hover:pointer-events-auto group-hover:block">
+        <span className="block rounded-md border border-hairline bg-canvas p-3.5 shadow-lg">
+          <span className="block font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-steel">
+            外部證據 {card.id}
+          </span>
+          <span className="mt-1.5 block font-serif text-[13px] font-semibold leading-[1.45]">{card.title}</span>
+          <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate">
+            <span className="rounded-full border border-primary/40 bg-primary-tint px-1.5 py-px font-mono font-semibold text-primary">
+              {card.rank}
+            </span>
+            {card.venue && <span>{card.venue}</span>}
+            {card.year && <span>{card.year}</span>}
+          </span>
+          <span className="mt-2 block max-h-36 overflow-y-auto text-[12.5px] leading-[1.65] text-ink">
+            「{card.abstract}」
+          </span>
+          {card.relevance && (
+            <span className="mt-2 block text-[11.5px] leading-[1.5] text-slate">關聯：{card.relevance}</span>
+          )}
+          {card.doi && (
+            <a
+              href={`https://doi.org/${card.doi}`}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-2 inline-block rounded-xs border border-hairline-strong px-2 py-0.5 font-mono text-[11px] font-medium text-primary transition-colors hover:border-primary"
+            >
+              DOI ↗
+            </a>
+          )}
+        </span>
+      </span>
+    </span>
+  );
+}
 
 /**
- * 把發言內文中的【E#】標記渲染成可 hover 的引文 chip（未命中引文庫的標記原樣輸出）。
+ * 把發言內文中的【E#】/【X#】標記渲染成可 hover 的引文 chip（未命中的標記原樣輸出）。
  * 舊紀錄（無引文庫）的逐字稿本無標記，天然降級為純文字。
  */
 function ContentWithEvidence({
   text,
   evidenceById,
+  externalById,
   onOpenPdf,
 }: {
   text: string;
   evidenceById: Map<string, DebateEvidenceRef>;
+  externalById: Map<string, ExternalEvidenceCard>;
   onOpenPdf: (ref: DebateEvidenceRef, page: number) => void;
 }) {
   const parts = text.split(EVIDENCE_MARK_RE);
   return (
     <>
       {parts.map((part, i) => {
-        const m = /^【(E\d+)】$/.exec(part);
-        const ref = m ? evidenceById.get(m[1]) : undefined;
-        if (!ref) return <Fragment key={i}>{part}</Fragment>;
-        return (
-          <EvidenceHover key={i} items={[ref]} onOpenPdf={(page) => onOpenPdf(ref, page)}>
-            <span data-testid="evidence-chip" className="font-mono text-[11px] font-semibold text-primary">
-              【{ref.id}】
-            </span>
-          </EvidenceHover>
-        );
+        const m = /^【([EX]\d+)】$/.exec(part);
+        if (!m) return <Fragment key={i}>{part}</Fragment>;
+        const ref = evidenceById.get(m[1]);
+        if (ref) {
+          return (
+            <EvidenceHover key={i} items={[ref]} onOpenPdf={(page) => onOpenPdf(ref, page)}>
+              <span data-testid="evidence-chip" className="font-mono text-[11px] font-semibold text-primary">
+                【{ref.id}】
+              </span>
+            </EvidenceHover>
+          );
+        }
+        const card = externalById.get(m[1]);
+        if (card) {
+          // 外部證據 chip 用外框樣式與內部【E#】區隔
+          return (
+            <ExternalEvidenceHover key={i} card={card}>
+              <span
+                data-testid="external-evidence-chip"
+                className="rounded-xs border border-primary/40 px-0.5 font-mono text-[11px] font-semibold text-primary"
+              >
+                【{card.id}】
+              </span>
+            </ExternalEvidenceHover>
+          );
+        }
+        return <Fragment key={i}>{part}</Fragment>;
       })}
     </>
   );
@@ -122,6 +207,7 @@ export default function DebateDetailPage({ params }: { params: Promise<{ id: str
   const [meta, setMeta] = useState<DebateMeta | null>(null);
   const [turns, setTurns] = useState<DebateTurn[]>([]);
   const [evidence, setEvidence] = useState<DebateEvidenceRef[]>([]);
+  const [externalEvidence, setExternalEvidence] = useState<ExternalEvidenceCard[]>([]);
   const [live, setLive] = useState<DebateTurn | null>(null);
   const [judgeLive, setJudgeLive] = useState<{ idx: number; seatInfo: string; text: string } | null>(null);
   const [verdict, setVerdict] = useState<DebateVerdict | null>(null);
@@ -137,12 +223,14 @@ export default function DebateDetailPage({ params }: { params: Promise<{ id: str
       debate: DebateMeta & {
         transcript: DebateTurn[];
         evidence: DebateEvidenceRef[] | null;
+        externalEvidence: ExternalEvidenceCard[] | null;
         verdict: DebateVerdict | null;
       }
     ) {
       setMeta(debate);
       setTurns(debate.transcript);
       setEvidence(debate.evidence ?? []);
+      setExternalEvidence(debate.externalEvidence ?? []);
       setVerdict(debate.verdict);
       if (debate.status === "failed") setError("辯論執行失敗（可回上一頁重新發起）");
     }
@@ -158,6 +246,7 @@ export default function DebateDetailPage({ params }: { params: Promise<{ id: str
         const debate = json.debate as DebateMeta & {
           transcript: DebateTurn[];
           evidence: DebateEvidenceRef[] | null;
+          externalEvidence: ExternalEvidenceCard[] | null;
           verdict: DebateVerdict | null;
         };
         if (debate.status !== "running") {
@@ -168,6 +257,7 @@ export default function DebateDetailPage({ params }: { params: Promise<{ id: str
         // 進行中：SSE 會重播 job 全部歷史事件再即時推送，逐字稿完全由事件流建立
         setMeta(debate);
         setEvidence(debate.evidence ?? []);
+        setExternalEvidence(debate.externalEvidence ?? []);
         setStage("連線中…");
         es = new EventSource(`/api/jobs/${id}/events`);
         es.onmessage = (msg) => {
@@ -176,6 +266,8 @@ export default function DebateDetailPage({ params }: { params: Promise<{ id: str
             setStage((event.data as { message: string }).message);
           } else if (event.type === "evidence") {
             setEvidence(event.data as DebateEvidenceRef[]);
+          } else if (event.type === "external_evidence") {
+            setExternalEvidence(event.data as ExternalEvidenceCard[]);
           } else if (event.type === "token") {
             // 逐字串流：正反方 token 疊進進行中氣泡；裁判 token 進評議區（合議庭換人時清空重來）
             const tok = event.data as DebateTurn & { text: string; judgeIndex?: number };
@@ -248,6 +340,7 @@ export default function DebateDetailPage({ params }: { params: Promise<{ id: str
   }
 
   const evidenceById = new Map(evidence.map((ref) => [ref.id, ref]));
+  const externalById = new Map(externalEvidence.map((card) => [card.id, card]));
   const openEvidencePdf = (ref: DebateEvidenceRef, page: number) =>
     router.push(`/workspace/${ref.paperId}?pdf=${page}`);
 
@@ -268,6 +361,46 @@ export default function DebateDetailPage({ params }: { params: Promise<{ id: str
         {meta.seats.judge2 && <span>裁判二：{meta.seats.judge2}</span>}
         {meta.seats.judge3 && <span>裁判三：{meta.seats.judge3}</span>}
       </div>
+
+      {/* ── 外部證據庫卡片區（正反方與裁判拿同一份） ── */}
+      {externalEvidence.length > 0 && (
+        <details className="mt-6 rounded-md border border-hairline bg-surface" data-testid="external-evidence-panel">
+          <summary className="cursor-pointer px-4 py-2.5 font-mono text-[11px] font-semibold uppercase tracking-[0.08em] text-slate hover:text-primary">
+            外部證據庫（{externalEvidence.length} 張）
+          </summary>
+          <ul className="divide-y divide-hairline border-t border-hairline">
+            {externalEvidence.map((card) => (
+              <li key={card.id} className="px-4 py-3" data-testid="external-evidence-card">
+                <div className="flex items-baseline gap-2">
+                  <span className="shrink-0 font-mono text-[11px] font-semibold text-primary">【{card.id}】</span>
+                  <span className="font-serif text-[13.5px] font-semibold leading-[1.4]">{card.title}</span>
+                </div>
+                <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 pl-9 text-[11px] text-slate">
+                  <span className="rounded-full border border-primary/40 bg-primary-tint px-1.5 py-px font-mono font-semibold text-primary">
+                    {card.rank}
+                  </span>
+                  {card.venue && <span>{card.venue}</span>}
+                  {card.year && <span>{card.year}</span>}
+                  {card.citedByCount !== null && <span>被引 {card.citedByCount}</span>}
+                  {card.doi && (
+                    <a
+                      href={`https://doi.org/${card.doi}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-mono text-primary hover:underline"
+                    >
+                      DOI ↗
+                    </a>
+                  )}
+                </div>
+                {card.relevance && (
+                  <p className="mt-1 pl-9 text-[12px] leading-[1.55] text-slate">關聯：{card.relevance}</p>
+                )}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
 
       {/* ── 逐字稿 ── */}
       <div className="mt-8 space-y-5">
@@ -296,7 +429,12 @@ export default function DebateDetailPage({ params }: { params: Promise<{ id: str
                 >
                   {turn.content.split("\n").map((line, j) => (
                     <p key={j} className={j > 0 ? "mt-1.5" : ""}>
-                      <ContentWithEvidence text={line} evidenceById={evidenceById} onOpenPdf={openEvidencePdf} />
+                      <ContentWithEvidence
+                        text={line}
+                        evidenceById={evidenceById}
+                        externalById={externalById}
+                        onOpenPdf={openEvidencePdf}
+                      />
                     </p>
                   ))}
                 </div>
@@ -364,7 +502,12 @@ export default function DebateDetailPage({ params }: { params: Promise<{ id: str
 
       {/* ── 判決卡：v1.7 合議判決；舊紀錄走 legacy 單裁判卡 ── */}
       {verdict && isVerdictV2(verdict) && (
-        <VerdictV2Card verdict={verdict} evidenceById={evidenceById} onOpenPdf={openEvidencePdf} />
+        <VerdictV2Card
+          verdict={verdict}
+          evidenceById={evidenceById}
+          externalById={externalById}
+          onOpenPdf={openEvidencePdf}
+        />
       )}
       {verdict && !isVerdictV2(verdict) && (
         <div className="mt-10 overflow-hidden rounded-md border border-hairline">
@@ -408,7 +551,12 @@ export default function DebateDetailPage({ params }: { params: Promise<{ id: str
             </div>
             <p className="mt-5 text-sm leading-[1.7]">
               {/* 裁判 prompt 不要求引用，但模型若自發帶【E#】標記也防禦性渲染成 chip */}
-              <ContentWithEvidence text={verdict.reasoning} evidenceById={evidenceById} onOpenPdf={openEvidencePdf} />
+              <ContentWithEvidence
+                text={verdict.reasoning}
+                evidenceById={evidenceById}
+                externalById={externalById}
+                onOpenPdf={openEvidencePdf}
+              />
             </p>
           </div>
         </div>
@@ -430,10 +578,12 @@ function rangeText(r: [number, number]): string {
 function VerdictV2Card({
   verdict,
   evidenceById,
+  externalById,
   onOpenPdf,
 }: {
   verdict: VerdictV2;
   evidenceById: Map<string, DebateEvidenceRef>;
+  externalById: Map<string, ExternalEvidenceCard>;
   onOpenPdf: (ref: DebateEvidenceRef, page: number) => void;
 }) {
   const multi = verdict.judges.length > 1;
@@ -539,7 +689,12 @@ function VerdictV2Card({
                 <span className="ml-auto font-mono text-[10px] text-steel">{judge.seatInfo}</span>
               </div>
               <p className="mt-1.5 text-[13px] leading-[1.65]">
-                <ContentWithEvidence text={judge.reasoning} evidenceById={evidenceById} onOpenPdf={onOpenPdf} />
+                <ContentWithEvidence
+                  text={judge.reasoning}
+                  evidenceById={evidenceById}
+                  externalById={externalById}
+                  onOpenPdf={onOpenPdf}
+                />
               </p>
               <details className="mt-2">
                 <summary className="cursor-pointer text-[11.5px] text-steel hover:text-slate">分項評語</summary>

@@ -6,7 +6,13 @@ import type { PaperResult } from "./scholarly/types";
 import type { KeypointsData, EvidenceItem } from "./keypoints/parse";
 import type { CompareData } from "./compare/parse";
 import type { ReviewData } from "./review/parse";
-import type { AnyDebateVerdict, DebateEvidenceRef, DebateTurn, DebateVerdictV2 } from "./debate/parse";
+import type {
+  AnyDebateVerdict,
+  DebateEvidenceRef,
+  DebateTurn,
+  DebateVerdictV2,
+  ExternalEvidenceCard,
+} from "./debate/parse";
 import type { ChatMessageMeta } from "./chat/types";
 
 const DATA_DIR = path.join(process.cwd(), "data");
@@ -132,8 +138,10 @@ export function ensureSchema() {
 
   ensureColumn("papers", "zotero_key", "TEXT");
   ensureColumn("papers", "issn", "TEXT");
+  ensureColumn("papers", "openalex_id", "TEXT");
   ensureColumn("keypoints", "zotero_note_key", "TEXT");
   ensureColumn("debates", "evidence_json", "TEXT");
+  ensureColumn("debates", "external_evidence_json", "TEXT");
 }
 
 /** 輕量 migration：欄位不存在時 ALTER TABLE 補上（better-sqlite3 無 IF NOT EXISTS for columns）。 */
@@ -313,14 +321,20 @@ export interface PaperRow {
   doi: string | null;
   pdfUrl: string | null;
   zoteroKey: string | null;
+  /** v1.9 起解析後快取的 OpenAlex work id（如 "W2741809807"）；未解析過為 null。 */
+  openalexId: string | null;
 }
 
 export function getPaper(id: string): PaperRow | undefined {
   return db
     .prepare(
-      `SELECT id, title, abstract, arxiv_id as arxivId, doi, pdf_url as pdfUrl, zotero_key as zoteroKey FROM papers WHERE id = ?`
+      `SELECT id, title, abstract, arxiv_id as arxivId, doi, pdf_url as pdfUrl, zotero_key as zoteroKey, openalex_id as openalexId FROM papers WHERE id = ?`
     )
     .get(id) as PaperRow | undefined;
+}
+
+export function setPaperOpenAlexId(paperId: string, openalexId: string) {
+  db.prepare("UPDATE papers SET openalex_id = ? WHERE id = ?").run(openalexId, paperId);
 }
 
 export interface KeypointsRow {
@@ -502,6 +516,8 @@ export interface DebateRow {
   transcript: DebateTurn[];
   /** v1.6 起的引文庫；舊紀錄為 null（逐字稿本無【E#】標記，UI 原樣顯示即降級）。 */
   evidence: DebateEvidenceRef[] | null;
+  /** v1.9 外部證據庫【X#】卡片；未啟用或舊紀錄為 null。 */
+  externalEvidence: ExternalEvidenceCard[] | null;
   verdict: AnyDebateVerdict | null;
   status: "running" | "done" | "failed";
   createdAt: string;
@@ -530,6 +546,10 @@ export function updateDebateEvidence(id: string, evidence: DebateEvidenceRef[]) 
   db.prepare(`UPDATE debates SET evidence_json = ? WHERE id = ?`).run(JSON.stringify(evidence), id);
 }
 
+export function updateDebateExternalEvidence(id: string, cards: ExternalEvidenceCard[]) {
+  db.prepare(`UPDATE debates SET external_evidence_json = ? WHERE id = ?`).run(JSON.stringify(cards), id);
+}
+
 export function finishDebate(id: string, verdict: DebateVerdictV2) {
   db.prepare(`UPDATE debates SET verdict_json = ?, status = 'done' WHERE id = ?`).run(
     JSON.stringify(verdict),
@@ -544,7 +564,7 @@ export function failDebate(id: string) {
 export function getDebate(id: string): DebateRow | undefined {
   const row = db
     .prepare(
-      `SELECT id, motion, paper_ids, seats_json, transcript_json, evidence_json, verdict_json, status, created_at
+      `SELECT id, motion, paper_ids, seats_json, transcript_json, evidence_json, external_evidence_json, verdict_json, status, created_at
        FROM debates WHERE id = ?`
     )
     .get(id) as
@@ -555,6 +575,7 @@ export function getDebate(id: string): DebateRow | undefined {
         seats_json: string;
         transcript_json: string;
         evidence_json: string | null;
+        external_evidence_json: string | null;
         verdict_json: string | null;
         status: string;
         created_at: string;
@@ -572,6 +593,9 @@ export function getDebate(id: string): DebateRow | undefined {
     seats: JSON.parse(row.seats_json) as Record<string, string>,
     transcript: JSON.parse(row.transcript_json) as DebateTurn[],
     evidence: row.evidence_json ? (JSON.parse(row.evidence_json) as DebateEvidenceRef[]) : null,
+    externalEvidence: row.external_evidence_json
+      ? (JSON.parse(row.external_evidence_json) as ExternalEvidenceCard[])
+      : null,
     verdict: row.verdict_json ? (JSON.parse(row.verdict_json) as AnyDebateVerdict) : null,
     status: row.status as DebateRow["status"],
     createdAt: row.created_at,

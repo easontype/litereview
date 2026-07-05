@@ -1,8 +1,17 @@
-import { failDebate, finishDebate, getPaper, updateDebateEvidence, updateDebateTranscript } from "@/lib/db";
+import {
+  failDebate,
+  finishDebate,
+  getPaper,
+  updateDebateEvidence,
+  updateDebateExternalEvidence,
+  updateDebateTranscript,
+} from "@/lib/db";
 import { ensureKeypoints } from "@/lib/keypoints/analyze";
 import { resolveSeat } from "@/lib/llm/registry";
 import type { SeatName } from "@/lib/llm/types";
 import { completeJob, emit, failJob } from "@/lib/jobs/store";
+import { buildExternalEvidence } from "./external-evidence";
+import type { ExternalEvidenceCard } from "./parse";
 import {
   buildDebateEvidenceIndex,
   buildSpeechPrompt,
@@ -40,7 +49,8 @@ export async function runDebate(
   motion: string,
   paperIds: string[],
   rounds: number,
-  judges: 1 | 3 = 3
+  judges: 1 | 3 = 3,
+  useExternalEvidence = false
 ): Promise<void> {
   try {
     emit(debateId, "stage", { message: "準備論文脈絡（找重點）…" });
@@ -56,6 +66,19 @@ export async function runDebate(
     const evidence = buildDebateEvidenceIndex(papers);
     updateDebateEvidence(debateId, evidence);
     emit(debateId, "evidence", evidence);
+
+    // v1.9 外部證據庫：建庫失敗一律降級為無外部證據照常辯論，絕不弄失敗整場
+    let externalEvidence: ExternalEvidenceCard[] = [];
+    if (useExternalEvidence) {
+      const cards = await buildExternalEvidence(motion, paperIds, (message) =>
+        emit(debateId, "stage", { message })
+      ).catch(() => null);
+      if (cards && cards.length > 0) {
+        externalEvidence = cards;
+        updateDebateExternalEvidence(debateId, cards);
+        emit(debateId, "external_evidence", cards);
+      }
+    }
 
     const transcript: DebateTurn[] = [];
 
@@ -86,7 +109,8 @@ export async function runDebate(
         role,
         phase,
         evidence,
-        usedEvidenceIds(transcript, role)
+        usedEvidenceIds(transcript, role),
+        externalEvidence
       );
       const content = await generate(seat, prompt, {
         role,
@@ -109,7 +133,7 @@ export async function runDebate(
     await speak("proponent", "closing");
     await speak("opponent", "closing");
 
-    const verdictPrompt = buildVerdictPrompt(motion, transcript);
+    const verdictPrompt = buildVerdictPrompt(motion, transcript, externalEvidence);
     const judgeSeats = JUDGE_SEATS.slice(0, judges);
     const judgeVerdicts: JudgeVerdict[] = [];
     for (const [index, seatName] of judgeSeats.entries()) {

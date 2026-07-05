@@ -10,12 +10,17 @@ export function createMockProvider(config: ProviderConfig): LlmProvider {
   function answer(prompt: string): string {
     if (prompt.includes('"motions"')) return mockReview();
     if (prompt.includes('"argument_quality"')) return mockVerdict();
+    if (prompt.includes('"external_evidence_selection"')) return mockRelevanceSelection();
     if (prompt.includes('"verdict"') && prompt.includes("陣列長度需等於")) {
       const m = /陣列長度需等於 (\d+)/.exec(prompt);
       return mockCompare(Number(m?.[1] ?? 2));
     }
     if (prompt.includes('"research_question"')) return mockKeypoints();
-    // 【E1】【E2】對應 mock keypoints 的兩條 evidence（經辯論引文庫編號後必命中）
+    // 【E1】【E2】對應 mock keypoints 的兩條 evidence（經辯論引文庫編號後必命中）；
+    // 帶外部證據庫的發言 prompt 加引【X1】，供 e2e 斷言外部證據 chip
+    if (prompt.includes("## 外部證據庫")) {
+      return "【mock】這是模擬的辯論發言：基於論文提供的證據，我方立場成立。理由一，實驗設計涵蓋了主要變因【E1】；理由二，領域內的高分文獻也支持此背景主張【X1】；理由三，效應量在多個資料集上穩定【E2】。";
+    }
     return "【mock】這是模擬的辯論發言：基於論文提供的證據，我方立場成立。理由一，實驗設計涵蓋了主要變因【E1】；理由二，對照組結果一致【E2】；理由三，效應量在多個資料集上穩定。";
   }
 
@@ -95,6 +100,16 @@ function mockReview(): string {
       strengths: [[{ quote: "【mock】優點出處引文", page: 1 }], []],
       weaknesses: [[], []],
     },
+  });
+}
+
+/** v1.9 外部證據庫相關性過濾罐頭：選前兩篇候選（fixture 至少提供兩篇合格候選）。 */
+function mockRelevanceSelection(): string {
+  return JSON.stringify({
+    external_evidence_selection: [
+      { index: 1, note: "【mock】與辯題的方法論主張直接相關" },
+      { index: 2, note: "【mock】提供辯題所涉領域的背景趨勢" },
+    ],
   });
 }
 

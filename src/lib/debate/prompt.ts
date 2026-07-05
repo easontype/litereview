@@ -6,6 +6,7 @@ import {
   type DebatePhase,
   type DebateRole,
   type DebateTurn,
+  type ExternalEvidenceCard,
 } from "./parse";
 
 /** 與 db 的 KeypointsRow 結構相容（只取 prompt 需要的欄位）。 */
@@ -59,6 +60,19 @@ export function buildDebateEvidenceIndex(papers: DebatePaperContext[]): DebateEv
     }
   });
   return refs;
+}
+
+/** 外部證據卡進 prompt 的摘要截斷（卡片本身存完整摘要，UI hover 可看全文）。 */
+const EXTERNAL_ABSTRACT_MAX_CHARS = 400;
+
+/** 外部證據庫【X#】清單：逐字摘要（截斷）+ 完整出處，正反方與裁判拿同一份。 */
+function renderExternalEvidenceLibrary(cards: ExternalEvidenceCard[]): string {
+  return cards
+    .map((c) => {
+      const meta = [c.venue, c.rank, c.year ? String(c.year) : null].filter(Boolean).join("・");
+      return `【${c.id}】《${c.title}》（${meta}）\n摘要（逐字）：${c.abstract.slice(0, EXTERNAL_ABSTRACT_MAX_CHARS)}\n與辯題的關聯：${c.relevance || "（未註記）"}`;
+    })
+    .join("\n\n");
 }
 
 function renderEvidenceLibrary(refs: DebateEvidenceRef[]): string {
@@ -127,7 +141,8 @@ export function buildSpeechPrompt(
   role: DebateRole,
   phase: DebatePhase,
   evidence: DebateEvidenceRef[] = [],
-  usedEvidence: string[] = []
+  usedEvidence: string[] = [],
+  externalEvidence: ExternalEvidenceCard[] = []
 ): string {
   const evidenceBlock =
     evidence.length > 0
@@ -135,6 +150,15 @@ export function buildSpeechPrompt(
 
 ## 引文庫
 ${renderEvidenceLibrary(evidence)}`
+      : "";
+  const externalBlock =
+    externalEvidence.length > 0
+      ? `
+
+## 外部證據庫
+以下是與被辯論文有引文關係、經期刊分級篩選的外部文獻（正反方與裁判拿到同一份）：
+
+${renderExternalEvidenceLibrary(externalEvidence)}`
       : "";
   const usedRule =
     evidence.length > 0 && usedEvidence.length > 0 && phase !== "opening"
@@ -144,13 +168,17 @@ ${renderEvidenceLibrary(evidence)}`
     evidence.length > 0
       ? `\n- 引用證據時在該句句尾標注引文庫編號（如【E2】），只能使用引文庫中存在的編號；沒有合適引文的論點不要硬標。${usedRule}`
       : "";
+  const externalRule =
+    externalEvidence.length > 0
+      ? `\n- 外部證據庫（【X#】）只能用來支撐背景性主張（領域共識、相關工作的結果趨勢）；針對被辯論文的具體數據攻防必須引用論文自身的引文庫（【E#】）。引用外部證據時在句尾標注【X#】，引用內容必須忠於該卡的逐字摘要——裁判拿同一份證據庫，會查驗你的引用是否忠實，濫用會在「證據運用」扣分。`
+      : "";
   return `你是一場學術辯論中的${ROLE_LABEL[role]}辯手。辯論圍繞以下論文與辯題進行，評判標準是論證品質與證據運用，不是修辭。
 
 ## 辯題
 ${motion}
 
 ## 論文脈絡
-${renderPapersContext(papers)}${evidenceBlock}
+${renderPapersContext(papers)}${evidenceBlock}${externalBlock}
 
 ## 目前逐字稿
 ${renderTranscript(transcript)}
@@ -161,22 +189,39 @@ ${PHASE_INSTRUCTION[phase][role]}
 要求：
 - 用繁體中文，直接輸出發言內容本身，不要加「正方：」之類的前綴，不要用 markdown 標題。
 - 控制在 300 字以內，論點編號清楚。
-- 立場必須鮮明；對方確實成立的具體論點可以坦然承認，但須說明它為何不動搖我方整體立場。有原則的讓步比硬拗更有說服力。${evidenceRule}`;
+- 立場必須鮮明；對方確實成立的具體論點可以坦然承認，但須說明它為何不動搖我方整體立場。有原則的讓步比硬拗更有說服力。${evidenceRule}${externalRule}`;
 }
 
 /** 組裁判 prompt：讀完整逐字稿後輸出分項 rubric JSON 判決（"argument_quality" 為 mock provider 的判別標記）；總分與勝方由程式計算，不由 LLM 給。 */
-export function buildVerdictPrompt(motion: string, transcript: DebateTurn[]): string {
+export function buildVerdictPrompt(
+  motion: string,
+  transcript: DebateTurn[],
+  externalEvidence: ExternalEvidenceCard[] = []
+): string {
+  const externalBlock =
+    externalEvidence.length > 0
+      ? `
+
+## 外部證據庫
+辯手可引用以下外部文獻（【X#】），你拿到的是與辯手完全相同的一份，用於查驗雙方引用是否忠實：
+
+${renderExternalEvidenceLibrary(externalEvidence)}`
+      : "";
+  const externalCheck =
+    externalEvidence.length > 0
+      ? "外部證據（【X#】）僅限支撐背景性主張——用外部證據代替論文自身證據進行具體數據攻防、引用內容與證據卡摘要不符、或標注不存在的編號，都應在此維度扣分。"
+      : "";
   return `你是一場學術辯論的裁判。請根據以下辯題與完整逐字稿，就四個維度分別為正反雙方評分。不看修辭華麗程度；不要直接宣告勝方——勝負由分項分數計算得出。
 
 ## 辯題
-${motion}
+${motion}${externalBlock}
 
 ## 完整逐字稿
 ${renderTranscript(transcript)}
 
 ## 評分維度定義
 - argument_quality（論點品質）：論點是否具體、邏輯是否嚴密、是否緊扣辯題。
-- evidence_use（證據運用）：是否有效引用論文證據（【E#】）支撐論點；重複用同一引文支撐同一論點、或空談無據應扣分。
+- evidence_use（證據運用）：是否有效引用論文證據（【E#】）支撐論點；重複用同一引文支撐同一論點、或空談無據應扣分。${externalCheck}
 - rebuttal_strength（反駁力度）：是否正面回應並削弱對方最關鍵的論點，而非重申自己的立場。
 - responsiveness（回應完整度）：對方的重要攻擊點是否都得到回應；駁論中是否誠實面對對方成立的論點（有原則的讓步加分，迴避扣分）。
 
