@@ -2,6 +2,7 @@
 
 export type ProviderKind =
   | "claude-cli"
+  | "codex-cli"
   | "anthropic"
   | "openai"
   | "openai-compatible"

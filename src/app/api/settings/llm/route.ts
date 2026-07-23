@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { BUILTIN_CLAUDE_CLI, getLlmConfig, saveLlmConfig } from "@/lib/llm/registry";
+import { BUILTIN_CLAUDE_CLI, BUILTIN_CODEX_CLI, getLlmConfig, saveLlmConfig } from "@/lib/llm/registry";
 import { SEAT_NAMES, type LlmConfig, type ProviderConfig } from "@/lib/llm/types";
 
 const VALID_KINDS = new Set(["claude-cli", "anthropic", "openai", "openai-compatible", "gemini", "mock"]);
@@ -55,7 +55,7 @@ export async function PUT(req: NextRequest) {
     if (typeof p.id !== "string" || !p.id.trim()) {
       return NextResponse.json({ error: "provider 缺少 id" }, { status: 400 });
     }
-    if (p.id === BUILTIN_CLAUDE_CLI.id) continue; // 內建項不可覆寫，registry 會自動補上
+    if (p.id === BUILTIN_CLAUDE_CLI.id || p.id === BUILTIN_CODEX_CLI.id) continue; // 內建項不可覆寫，registry 會自動補上
     if (typeof p.kind !== "string" || !VALID_KINDS.has(p.kind)) {
       return NextResponse.json({ error: `不支援的 provider 類型: ${String(p.kind)}` }, { status: 400 });
     }
@@ -77,7 +77,7 @@ export async function PUT(req: NextRequest) {
     });
   }
 
-  const allProviders = [BUILTIN_CLAUDE_CLI, ...providers];
+  const allProviders = [BUILTIN_CLAUDE_CLI, BUILTIN_CODEX_CLI, ...providers];
   const config: LlmConfig = { providers, seats: existing.seats };
   for (const seat of SEAT_NAMES) {
     const incoming = body.seats?.[seat];
