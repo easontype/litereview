@@ -3,7 +3,9 @@
  * 需要 Zotero 桌面版開啟，且「允許本機其他應用程式與 Zotero 通訊」設定為開（預設開）。
  */
 
-const BASE = "http://localhost:23119/api/users/0";
+// 127.0.0.1 explicitly: Zotero's local API listens on IPv4 only, while Node 17+
+// on Windows may resolve `localhost` to ::1 first and hang the connection.
+const BASE = "http://127.0.0.1:23119/api/users/0";
 const PAGE_SIZE = 100;
 const MAX_ITEMS = 500;
 
