@@ -1,5 +1,6 @@
 import { getSetting, setSetting } from "@/lib/db";
 import { createClaudeCliProvider } from "./providers/claude-cli";
+import { createCodexCliProvider } from "./providers/codex-cli";
 import { createOpenAiProvider } from "./providers/openai";
 import { createGeminiProvider } from "./providers/gemini";
 import { createAnthropicProvider } from "./providers/anthropic-api";
@@ -24,6 +25,14 @@ export const BUILTIN_CLAUDE_CLI: ProviderConfig = {
   models: ["claude-sonnet-5", "claude-opus-4-8", "claude-haiku-4-5"],
 };
 
+/** 內建第二 CLI provider：走本機 ChatGPT 訂閱的 codex CLI，供異質模型座位（辯論反方/裁判）。 */
+export const BUILTIN_CODEX_CLI: ProviderConfig = {
+  id: "codex-cli",
+  kind: "codex-cli",
+  label: "OpenAI Codex CLI（訂閱）",
+  models: ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.3-codex-spark"],
+};
+
 const DEFAULT_SEAT: SeatAssignment = { providerId: "claude-cli", model: "claude-sonnet-5" };
 
 function defaultSeats(): Record<SeatName, SeatAssignment> {
@@ -45,8 +54,10 @@ export function getLlmConfig(): LlmConfig {
     }
   }
 
-  const extras = (stored.providers ?? []).filter((p) => p.id !== BUILTIN_CLAUDE_CLI.id);
-  const providers = [BUILTIN_CLAUDE_CLI, ...extras];
+  const extras = (stored.providers ?? []).filter(
+    (p) => p.id !== BUILTIN_CLAUDE_CLI.id && p.id !== BUILTIN_CODEX_CLI.id
+  );
+  const providers = [BUILTIN_CLAUDE_CLI, BUILTIN_CODEX_CLI, ...extras];
   const seats = defaultSeats();
   for (const seat of SEAT_NAMES) {
     const assigned = stored.seats?.[seat];
@@ -65,6 +76,8 @@ export function instantiateProvider(config: ProviderConfig): LlmProvider {
   switch (config.kind) {
     case "claude-cli":
       return createClaudeCliProvider(config);
+    case "codex-cli":
+      return createCodexCliProvider(config);
     case "openai":
     case "openai-compatible":
       return createOpenAiProvider(config);
